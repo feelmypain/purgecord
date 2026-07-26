@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run build
+
+      # The .user.js at the repo root is what people install, so it must always
+      # match src/. Without this it silently drifts from the sources.
+      - name: Verify the committed userscript matches src/
+        run: |
+          if ! git diff --quiet -- purgecord.user.js; then
+            echo "::error::purgecord.user.js is out of date. Run 'npm run build' and commit the result."
+            git --no-pager diff --stat -- purgecord.user.js
+            exit 1
+          fi
+
+      - name: Check the userscript parses
+        run: node --check purgecord.user.js

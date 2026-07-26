@@ -1,131 +1,378 @@
-# Undiscord - Delete all messages in a Discord channel or DM
-<!-- shields -->
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/victornpb/undiscord?color=%235865f2&display_name=tag&label=Undiscord&style=flat-square)][greasyfork_url]
-[![GitHub Release Date](https://img.shields.io/github/release-date/victornpb/undiscord?style=flat-square)](https://github.com/victornpb/undiscord/releases)
-[![GitHub License](https://img.shields.io/github/license/victornpb/undiscord?style=flat-square)](https://github.com/victornpb/undiscord/blob/master/LICENSE)
-[![CodeFactor](https://www.codefactor.io/repository/github/victornpb/undiscord/badge?style=flat-square)](https://www.codefactor.io/repository/github/victornpb/undiscord?style=flat-square)
-![Snyk Vulnerabilities for GitHub Repo](https://img.shields.io/snyk/vulnerabilities/github/victornpb/undiscord?style=flat-square)
-[![GitHub Stars](https://img.shields.io/github/stars/victornpb/undiscord?style=flat-square)](https://github.com/victornpb/undiscord/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/victornpb/undiscord?style=flat-square)](https://github.com/victornpb/undiscord/network/members)
-[![GitHub Discussions](https://img.shields.io/github/discussions/victornpb/undiscord?style=flat-square)](https://github.com/victornpb/undiscord/discussions)
-[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/victornpb/undiscord?style=flat-square&color=green)](https://github.com/victornpb/undiscord/pulls?q=is%3Apr+is%3Aclosed)
-[![GitHub closed issues](https://img.shields.io/github/issues-closed/victornpb/undiscord?style=flat-square&color=green)](https://github.com/victornpb/undiscord/issues?q=is%3Aissue+is%3Aclosed)
-<!-- end shields -->
+# Purgecord
 
-> ⚠️ **Any tool that automates actions on user accounts, including this one, could result in account termination.** (see [self-bots][self-bots]).  
-> Use at your own risk! ([discussion](https://github.com/victornpb/undiscord/discussions/273)).
+**Bulk-delete your own messages in a Discord channel, DM, or across an entire server.**
 
-(Due to changes in chrome manifest V3, [Brave browser][brave_browser] is recommended)
+Purgecord is a [userscript](https://en.wikipedia.org/wiki/Userscript): a single JavaScript file that a browser
+extension injects into the Discord web app. It adds a 🗑️ button to Discord's toolbar that opens a panel where you
+pick what to delete, and then it walks Discord's own search API deleting matching messages one at a time, respecting
+the rate limits the API asks for.
 
-1. First you need a Browser Extension for managing UserScripts[[1]][userscrips_faq] (skip if you already have one): '
-   * Brave: [Violentmonkey][chrome_violentmonkey] or [Tampermonkey][chrome_tampermonkey]
-   * Chrome: [Violentmonkey][chrome_violentmonkey] or [Tampermonkey][chrome_tampermonkey]
-   * Firefox: [Greasemonkey][firefox_greasemonkey], [Tampermonkey][firefox_tampermonkey], or [Violentmonkey][firefox_violentmonkey]  
-   * Opera: [Tampermonkey][opera_tampermonkey] or [Violentmonkey][opera_violentmonkey]
-   * Edge: [Tampermonkey][edge_tampermonkey]  
-   * Safari: ~[Tampermonkey][safari_tampermonkey]~ 
-    
-1. Install Undiscord:  
-  [![][greasyfork_icon]][greasyfork_url] or [![][openuserjs_icon]][openuserjs_url]  
-  (NOTE: GreasyFork is recommended for now, OpenUserJS is not receiving updates)
+It only ever deletes messages **you** can delete. There is no server, no account, and nothing leaves your browser.
 
-1. Open <a href="https://discord.com/channels/@me" target="_blank">Discord</a> in your __browser__ (Not the App) and go to the channel or direct message you would like to be wiped.
+> [!WARNING]
+> **Automating a user account is against Discord's Terms of Service** and can get your account terminated
+> (see [self-bots](https://support.discord.com/hc/en-us/articles/115002192352-Automated-user-accounts-self-bots-)).
+> This tool exists because Discord provides no way to bulk-delete your own history. Use it at your own risk, and
+> prefer conservative delays.
 
-1. Click the <kbd>🗑️</kbd> button that was added in the top right corner.
+> [!CAUTION]
+> **Deletion is permanent.** Messages are gone the moment Purgecord deletes them — there is no undo and no recycle
+> bin. Request [your data archive](https://support.discord.com/hc/en-us/articles/360004027692) first if you want a
+> copy, and use *Streamer mode* + the confirmation preview to check what you are about to erase.
 
-1. Click on the buttons near **Author ID** and **Server ID** and **Channel ID**.  
+---
 
-1. Click the ![Delete](https://user-images.githubusercontent.com/3372598/223744853-c0d4d9e3-1914-486b-bb4f-f27e40d0e3e7.png) button to begin wipping! 
+## Table of contents
 
+- [Install](#install)
+- [Quick start](#quick-start)
+- [The panel, field by field](#the-panel-field-by-field)
+  - [Author ID](#author-id) · [Server ID](#server-id) · [Channel ID](#channel-id)
+  - [Wipe a Discord data archive](#wipe-a-discord-data-archive)
+  - [Filter](#filter) · [Pattern](#pattern)
+  - [Messages interval](#messages-interval) · [Date interval](#date-interval)
+  - [Delays](#delays) · [Authorization Token](#authorization-token)
+- [How it works](#how-it-works)
+- [Troubleshooting](#troubleshooting)
+- [Security](#security)
+- [Building from source](#building-from-source)
+- [Credits and license](#credits-and-license)
 
-![Screenshot](https://user-images.githubusercontent.com/3372598/222977831-88eeb59a-186a-4947-8e33-0ac245c3af5c.gif)
+---
 
-I made this tool just for you ❤️ , it would be awesome if you could just click the [⭐️ Star button](https://github.com/victornpb/undiscord) at the top!
+## Install
 
-> A few extra generous people asked for this, so here you can [buy me a coffee](https://www.buymeacoffee.com/vitim). Thank you! You'll be in my special list ^_^
+### 1. Install a userscript manager
 
-----
-### Need help?
-Check out the [wiki](https://github.com/victornpb/undiscord/wiki) for helpful articles, or read existing [questions](https://github.com/victornpb/undiscord/discussions), or post a new one.
+Purgecord is not a browser extension itself — it needs a *userscript manager* extension to run it. Pick one:
 
-### Have an Idea or Feature request?
-Check out the [Ideas][ideas] section, if your idea _hasn't been posted before_, please post a new one.
+| Browser | Recommended | Also works |
+|---|---|---|
+| **Chrome** | [Violentmonkey](https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag) | [Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo) |
+| **Firefox** | [Violentmonkey](https://addons.mozilla.org/firefox/addon/violentmonkey/) | [Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/), [Greasemonkey](https://addons.mozilla.org/firefox/addon/greasemonkey/) |
+| **Edge** | [Violentmonkey](https://microsoftedge.microsoft.com/addons/detail/violentmonkey/eeagobfjdenkkddmbclomhiblgggliao) | [Tampermonkey](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd) |
+| **Brave** | [Violentmonkey](https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag) | [Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo) |
+| **Opera** | [Violentmonkey](https://addons.opera.com/extensions/details/violent-monkey/) | [Tampermonkey](https://addons.opera.com/extensions/details/tampermonkey-beta/) |
+| **Safari** | [Userscripts](https://apps.apple.com/app/userscripts/id1463298887) | — |
 
-### Found a bug?
-Is prefered that _issues_ follow a certain format. If you're not familiar with bug reports, please use the [discussions][discussions] tab instead.
+Any of them work. Violentmonkey is open source and is what this project is tested against.
 
-If you believe you found a bug please file an [issue](https://github.com/victornpb/undiscord/issues), but please fill the issue template.
+### 2. Install Purgecord
 
-If you are looking to contribute please read the [CONTRIBUTING](./CONTRIBUTING.md) first.
+Click the install link — your userscript manager will intercept it and show an install prompt:
 
-### Copy paste version
-Looking for the old Copy/Paste version? [here](https://github.com/victornpb/undiscord/wiki/Copy-paste-method)
+### 👉 [**Install Purgecord**](https://raw.githubusercontent.com/feelmypain/purgecord/main/purgecord.user.js) 👈
 
+Review the metadata block it shows you (name, `@match` rules, `@grant none`) and click **Install** / **Confirm
+installation**.
 
-----
+<details>
+<summary>Manual install, if the link doesn't trigger a prompt</summary>
 
-Originally from https://gist.github.com/victornpb/135f5b346dea4decfc8f63ad7d9cc182
+1. Open [`purgecord.user.js`](https://raw.githubusercontent.com/feelmypain/purgecord/main/purgecord.user.js) and copy
+   the whole file.
+2. Open your userscript manager's dashboard → **+** / **Create a new script**.
+3. Select everything in the editor, paste over it, and save (<kbd>Ctrl</kbd>+<kbd>S</kbd>).
 
-----
-## ⛔️ DO NOT SHARE YOUR AUTH TOKEN! ⛔️ ##
+</details>
 
-Sharing your authToken on the internet will give full access to your account! [There are bots gathering credentials all over the internet](https://github.com/rndinfosecguy/Scavenger).
-If you post your token by accident, LOGOUT from discord on that **same browser** you got that token imediately.
-Changing your password will make sure that you get logged out of every device. I advice that you turn on [2FA](https://support.discord.com/hc/en-us/articles/219576828-Setting-up-Two-Factor-Authentication) afterwards.
+Updates: the script declares `@updateURL`, so your manager will pick up new versions from this repo automatically.
 
-If you are unsure do not post screenshots, or logs on the internet.
+### 3. Open Discord in a browser
 
-----
-## Security Concerns
+Purgecord runs in the **web app** at [discord.com/channels/@me](https://discord.com/channels/@me) — not the desktop
+app. `discord.com`, `ptb.discord.com` and `canary.discord.com` all work.
 
-Using third-party scripts means you trust that the script’s developer hasn’t inserted malicious functionality into the code and has secured it against attackers trying to do the same. You should never run code you don't trust.
+---
 
-Please read: [what I'm doing to ensure this is safe for users][security_policy].
+## Quick start
 
-----
-#### DISCLAIMER
+**Delete everything you ever said in one channel:**
 
-> THE SOFTWARE AND ALL INFORMATION HERE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+1. Open the channel or DM in Discord.
+2. Click the 🗑️ button in the top-right toolbar.
+3. Click **me** next to *Author ID*, then **current** next to *Channel ID*. Both fields fill themselves in.
+4. Click **▶︎ Delete**.
+5. Read the confirmation preview carefully, then accept.
+
+The log pane shows every deletion as it happens. **🛑 Stop** halts the run at any point — already-deleted messages
+stay deleted; nothing else is touched.
+
+**Delete everything you ever said in a whole server:** same as above, but click **current** next to *Server ID* and
+leave *Channel ID* **empty**. Purgecord will search the entire server.
+
+> Leaving *Author ID* empty means "delete every message that matches, regardless of who wrote it". You almost never
+> want that — Discord will refuse anything that isn't yours (Purgecord skips those), but it is slow and noisy. Fill
+> in *Author ID*.
+
+---
+
+## The panel, field by field
+
+### Author ID
+
+Whose messages to delete. Click **me** to fill in your own user ID.
+
+Leave it empty only if you have *Manage Messages* in the target channel and genuinely want to delete other people's
+messages too. Anything you lack permission for is skipped automatically.
+
+### Server ID
+
+Which server to search. Click **current** while viewing the server.
+
+For direct messages this is the literal string `@me`, and *Channel ID* then becomes required.
+
+### Channel ID
+
+Which channel to search.
+
+- **One channel** — paste one ID, or click **current**.
+- **Several channels** — paste a comma- or space-separated list. Purgecord runs them as a queue, one after another,
+  pausing between each so it doesn't trip the rate limiter.
+- **The whole server** — leave it empty (requires *Server ID* to be a real server, not `@me`).
+
+`This is a NSFW channel` must be ticked for age-restricted channels, otherwise Discord's search returns nothing.
+
+### Wipe a Discord data archive
+
+If you [requested your data](https://support.discord.com/hc/en-us/articles/360004027692) from Discord, you can feed
+the archive's channel index straight in:
+
+1. Unzip the package Discord emailed you.
+2. **Wipe Archive** → choose `messages/index.json`.
+3. Purgecord fills *Server ID* with `@me`, *Author ID* with your own, and *Channel ID* with every channel in the
+   archive.
+4. Press **▶︎ Delete** and leave it running.
+
+This is the practical way to clear years of DMs across dozens of conversations. Channels you have since lost access
+to are skipped with a warning and the queue continues.
+
+### Filter
+
+Narrows what counts as a match. These are applied by Discord's search, so they cost nothing:
+
+- **Containing text** — only messages containing this text.
+- **has: link** / **has: file** — only messages with a link or an attachment.
+- **Include pinned** — off by default, so pinned messages are left alone. Tick it to delete them too.
+
+### Pattern
+
+A JavaScript regular expression, case-insensitive, applied on top of everything else. Only messages whose text
+matches are deleted.
+
+Examples:
+
+| Pattern | Matches |
+|---|---|
+| `^gg$` | messages that are exactly "gg" |
+| `https?://` | messages containing a URL |
+| `\b(sorry\|oops)\b` | messages containing "sorry" or "oops" |
+| `^.{1,3}$` | very short messages |
+
+Purgecord matches against the message text *and* the text of forwarded messages and poll questions, so those aren't
+silently missed. A malformed pattern is ignored with a warning rather than deleting everything.
+
+### Messages interval
+
+Deletes only a slice of history, bounded by two message IDs.
+
+- **After a message** — only messages *newer* than this one.
+- **Before a message** — only messages *older* than this one.
+
+Click **Pick** and then click any message in the chat to fill the field without hunting for IDs. Press
+<kbd>Esc</kbd> to cancel picking.
+
+### Date interval
+
+The same idea with dates instead of message IDs. Both fields need a date **and** a time.
+
+Note: *Messages interval* wins if you fill in both.
+
+### Delays
+
+Two sliders, both in milliseconds:
+
+- **Search delay** (default **2000**) — pause between fetching pages of search results.
+- **Delete delay** (default **1000**) — pause between individual deletions.
+
+These are **floors**, not fixed values. When Discord rate-limits the script, Purgecord waits exactly as long as the
+API asked, adds a growing backoff on top, and then eases that backoff back down as requests start succeeding again.
+Your slider positions are never overwritten; when the script is pacing itself above them, the status bar shows
+`(throttled +Nms)`.
+
+Lower is faster but gets rate-limited sooner. If a run is being throttled constantly, raise both rather than
+fighting it — being throttled repeatedly is what escalates to a temporary IP block.
+
+### Authorization Token
+
+Your Discord auth token, which Purgecord needs to call the API as you. Click **fill** and it reads it from the page
+automatically. You should not have to touch this field.
+
+If auto-detection fails (most often because DevTools is open — Discord hides the token then), close DevTools and
+click **fill** again.
+
+> [!CAUTION]
+> **Never share this token with anyone.** It grants complete access to your account, bypassing your password and
+> 2FA. If you ever paste it somewhere by accident, log out of Discord in that browser immediately, which invalidates
+> it. Keep **Streamer mode** on (it is by default) when screenshotting or screen-sharing — it masks the token, IDs
+> and message contents in the panel.
+
+---
+
+## How it works
+
+1. **Search.** Purgecord calls the same `/messages/search` endpoint the Discord client uses, with your filters
+   applied, sorted newest-first, 25 results per page.
+2. **Filter.** System messages Discord refuses to delete (call notices, channel renames, thread starters, …) are
+   dropped, along with pinned messages and anything your pattern excludes.
+3. **Delete.** Each remaining message is deleted individually, pacing itself against the rate limits.
+4. **Page.** The cursor moves to just before the oldest message of the page and searches again. Paging by message ID
+   rather than by an offset means deleting messages can't shift the window mid-walk, and there's no ceiling on how
+   far back it can go.
+5. **Sweep.** When the walk reaches the end having deleted anything, it runs once more — Discord's search index lags
+   behind deletions and can hide messages that were there the whole time.
+
+Errors are classified rather than blindly retried. A message that can never be deleted (system message, locked or
+archived thread, missing permission) is skipped once with an explanation instead of being retried forever. An
+expired token or a block from Discord's edge stops the run immediately, because retrying either one only makes it
+worse.
+
+**Messages in archived threads are skipped.** Deleting them requires un-archiving the thread first, which is a
+change everyone else in the server can see, so Purgecord does not do it silently. Open the thread yourself (which
+un-archives it) and run again.
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><b>The 🗑️ button doesn't appear</b></summary>
+
+First check that the script is actually running: your userscript manager's icon should show `1` on a Discord tab.
+If it shows `0`, the `@match` rules didn't fire — make sure you are on `discord.com/channels/...` and not the
+desktop app.
+
+If the script is running but the button isn't there, Discord has probably renamed its toolbar CSS classes again.
+The panel itself still exists — open it directly from the browser console (<kbd>F12</kbd>):
+
+```js
+document.querySelector('#purgecord').style.display = ''
+```
+
+Then please [open an issue](https://github.com/feelmypain/purgecord/issues) so the selector can be fixed.
+
+</details>
+
+<details>
+<summary><b>"Could not automatically detect Authorization Token"</b></summary>
+
+Close DevTools and click **fill** again. Discord deletes the stored token from local storage while DevTools is open,
+as an anti-scam measure.
+
+If you are running Purgecord inside the *desktop* app via a client mod, the stored token is encrypted and cannot be
+read — use the web app instead.
+
+</details>
+
+<details>
+<summary><b>It says "Being rate limited" over and over</b></summary>
+
+That is the script doing its job — it backs off and keeps going. If it happens constantly, raise both delays. Very
+large or very old channels are slow by nature; a channel with tens of thousands of messages takes hours.
+
+</details>
+
+<details>
+<summary><b>It stopped and messages are still there</b></summary>
+
+Run it again. Discord's search index can lag well behind reality, and a message it doesn't return can't be deleted.
+Purgecord already re-sweeps once at the end, but a second manual run costs nothing.
+
+Check the log for skipped messages too — messages in archived threads, in channels you have left, or posted by
+someone else are reported individually with the reason.
+
+</details>
+
+<details>
+<summary><b>"Blocked by Cloudflare"</b></summary>
+
+Too many requests reached Discord's edge and your IP is temporarily blocked — potentially for up to 24 hours. Stop,
+wait, and use larger delays next time. Nothing else you do will speed this up.
+
+</details>
+
+<details>
+<summary><b>The panel is unreadable / invisible text</b></summary>
+
+Purgecord styles itself with Discord's own theme variables. If Discord renames them, colours can fall back to
+nothing. Please [open an issue](https://github.com/feelmypain/purgecord/issues) with a screenshot and your
+Discord build.
+
+</details>
+
+---
+
+## Security
+
+You are about to run a third-party script inside a page that is logged into your Discord account. Take that
+seriously — with any userscript, including this one:
+
+- **Read the source before you install it.** It is a single readable file, and the `src/` directory here is the
+  unminified original. Nothing is obfuscated.
+- **Check what it can reach.** The metadata block declares `@grant none` (no privileged userscript APIs) and three
+  `@match` rules limited to `discord.com`. It talks to no host other than Discord's own API, which you can verify
+  in the Network tab.
+- **Install from a source you trust.** Prefer this repo's raw URL over a copy someone pasted elsewhere.
+
+Purgecord has no telemetry, no analytics, and no remote configuration. Your token never leaves the Discord page.
+
+---
+
+## Building from source
+
+Requires Node.js 18+.
+
+```sh
+git clone https://github.com/feelmypain/purgecord.git
+cd purgecord
+npm ci
+npm run build      # bundles src/ into purgecord.user.js
+npm test           # eslint + build
+```
+
+For development, `npm start` runs Rollup in watch mode and serves the built script at
+`http://localhost:10001/purgecord.user.js`. Install *that* URL in your userscript manager and it will pick up each
+rebuild (it installs under a separate `[DEV]` name so it won't clash with your normal install).
+
+```
+src/
+├── index.js              entry point
+├── purgecord-core.js     search + delete engine, pagination, rate limiting
+├── purgecord-ui.js       panel wiring, mounting, logging
+├── ui/                   injected markup and styles
+└── utils/                token/id lookup, message picker, drag, helpers
+```
+
+---
+
+## Credits and license
+
+Purgecord is a fork of **[Undiscord](https://github.com/victornpb/undiscord)** by
+[victornpb](https://github.com/victornpb) and its contributors, who wrote the original tool and everything this
+project is built on. Full credit to them.
+
+This fork modernizes it for the current Discord web client and API — a rewritten pagination model, corrected
+rate-limit handling, updated message-type and error handling, refreshed theme variables and DOM selectors.
+
+Released under the [MIT License](./LICENSE). The original copyright notice and its attribution requirement are
+retained, as the licence requires.
+
+#### Disclaimer
+
+> THE SOFTWARE AND ALL INFORMATION HERE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+> INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+> NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+> SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 >
-> By using any code or information provided here you are agreeing to all parts of the above Disclaimer.
-
-
-
-
-<!-- links -->
-  [self-bots]: https://support.discordapp.com/hc/en-us/articles/115002192352-Automated-user-accounts-self-bots-
-  [userscrips_faq]: https://en.wikipedia.org/wiki/Userscript
-  [greasyfork_icon]: https://user-images.githubusercontent.com/3372598/166113712-1bc3d654-1342-4f1e-9845-21c3b21524b1.png
-  [openuserjs_icon]: https://user-images.githubusercontent.com/3372598/166113714-5a2ede39-8d66-43a8-b5da-8f1897cb3121.png
-  [greasyfork_moderation]: https://greasyfork.org/en/moderator_actions
-
-  [issues]: https://github.com/victornpb/undiscord/issues
-  [issues_open]: https://github.com/victornpb/undiscord/issues
-  [issues_closed]: https://github.com/victornpb/undiscord/issues
-  [prs]: https://github.com/victornpb/undiscord/pulls
-  [pr_open]: https://github.com/victornpb/undiscord/pulls
-  [prs_closed]: https://github.com/victornpb/undiscord/pulls
-  [forks]: https://github.com/victornpb/undiscord/network/members
-
-  [wiki]: https://github.com/victornpb/undiscord/wiki
-  [discussions]: https://github.com/victornpb/undiscord/discussions
-  [ideas]: https://github.com/victornpb/undiscord/discussions/categories/2-ideas
-  [questions]: https://github.com/victornpb/undiscord/discussions/categories/1-questions-answers
-  [security_policy]: https://github.com/victornpb/undiscord/wiki/Security-Policy
-
-<!-- Extensions -->
-  [chrome_violentmonkey]: https://chrome.google.com/webstore/detail/violent-monkey/jinjaccalgkegednnccohejagnlnfdag
-  [chrome_tampermonkey]: https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo
-  [firefox_greasemonkey]: https://addons.mozilla.org/firefox/addon/greasemonkey/
-  [firefox_tampermonkey]: https://addons.mozilla.org/firefox/addon/tampermonkey/
-  [firefox_violentmonkey]: https://addons.mozilla.org/firefox/addon/violentmonkey/
-  [safari_tampermonkey]: https://github.com/victornpb/undiscord/issues/91#issuecomment-654514364
-  [edge_tampermonkey]: https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd
-  [opera_tampermonkey]: https://addons.opera.com/extensions/details/tampermonkey-beta/
-  [opera_violentmonkey]: https://addons.opera.com/extensions/details/violent-monkey/
-
-<!-- Download links -->
-  [greasyfork_url]: <https://greasyfork.org/en/scripts/406540-undiscord-delete-all-messages-in-a-discord-channel-or-dm-bulk-deletion> "Get Undiscord from GreasyFork"
-  [openuserjs_url]: <https://openuserjs.org/scripts/victornpb/Undiscord_-_Delete_all_messages_in_a_Discord_channel_or_DM_(Bulk_deletion)> "Get Undiscord from OpenUserJS"
-
-  [brave_browser]: https://brave.com/download/
+> By using any code or information provided here you are agreeing to all parts of the above disclaimer.

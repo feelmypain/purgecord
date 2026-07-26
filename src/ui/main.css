@@ -1,15 +1,15 @@
-/**** Undiscord Button ****/
-#undicord-btn {
+/**** Purgecord Button ****/
+#purgecord-btn {
     position: relative;
     width: auto;
     height: 24px;
     margin: 0 8px;
     cursor: pointer;
-    color: var(--interactive-normal);
+    color: var(--interactive-icon-default, var(--interactive-normal));
     flex: 0 0 auto;
 }
 
-#undicord-btn progress {
+#purgecord-btn progress {
     position: absolute;
     top: 23px;
     left: -4px;
@@ -18,16 +18,16 @@
     display: none;
 }
 
-#undicord-btn.running {
-    color: var(--button-danger-background) !important;
+#purgecord-btn.running {
+    color: var(--control-critical-primary-background-default, var(--button-danger-background)) !important;
 }
 
-#undicord-btn.running progress {
+#purgecord-btn.running progress {
     display: block;
 }
 
-/**** Undiscord Interface ****/
-#undiscord {
+/**** Purgecord Interface ****/
+#purgecord {
     position: fixed;
     z-index: 100;
     top: 58px;
@@ -40,22 +40,22 @@
     max-width: 100vw;
     min-height: 448px;
     max-height: 100vh;
-    color: var(--text-normal);
+    color: var(--text-default, var(--text-normal));
     border-radius: 4px;
-    background-color: var(--background-secondary);
+    background-color: var(--background-base-low, var(--background-secondary));
     box-shadow: var(--elevation-stroke), var(--elevation-high);
     will-change: top, left, width, height;
 }
 
-#undiscord .header .icon {
+#purgecord .header .icon {
     cursor: pointer;
 }
 
-#undiscord .window-body {
+#purgecord .window-body {
     height: calc(100% - 48px);
 }
 
-#undiscord .sidebar {
+#purgecord .sidebar {
     overflow: hidden scroll;
     overflow-y: auto;
     width: 270px;
@@ -66,28 +66,28 @@
     background: var(--bg-overlay-4, var(--background-base-lowest));
 }
 
-#undiscord .sidebar legend,
-#undiscord .sidebar label {
+#purgecord .sidebar legend,
+#purgecord .sidebar label {
     display: block;
     width: 100%;
 }
 
-#undiscord .main {
+#purgecord .main {
     display: flex;
     max-width: calc(100% - 250px);
     background-color: var(--bg-overlay-chat, var(--background-base-lower));
     flex-grow: 1;
 }
 
-#undiscord.hide-sidebar .sidebar {
+#purgecord.hide-sidebar .sidebar {
     display: none;
 }
 
-#undiscord.hide-sidebar .main {
+#purgecord.hide-sidebar .main {
     max-width: 100%;
 }
 
-#undiscord #logArea {
+#purgecord #logArea {
     font-family: Consolas, Liberation Mono, Menlo, Courier, monospace;
     font-size: 0.75rem;
     overflow: auto;
@@ -98,22 +98,22 @@
     cursor: auto;
 }
 
-#undiscord .tbar {
+#purgecord .tbar {
     padding: 8px;
     background-color: var(--bg-overlay-2, var(--__header-bar-background));
 }
 
-#undiscord .tbar button {
+#purgecord .tbar button {
     margin-right: 4px;
     margin-bottom: 4px;
 }
 
-#undiscord .footer {
+#purgecord .footer {
     cursor: se-resize;
     padding-right: 30px;
 }
 
-#undiscord .footer #progressPercent {
+#purgecord .footer #progressPercent {
     padding: 0 1em;
     font-size: small;
     color: var(--interactive-muted);
@@ -127,12 +127,12 @@
     width: 30px;
     height: 30px;
     transform: rotate(-45deg);
-    background: repeating-linear-gradient(0, var(--background-modifier-accent), var(--background-modifier-accent) 1px, transparent 2px, transparent 4px);
+    background: repeating-linear-gradient(0, var(--border-subtle, var(--background-modifier-accent)), var(--border-subtle, var(--background-modifier-accent)) 1px, transparent 2px, transparent 4px);
     cursor: nwse-resize;
 }
 
 /**** Elements ****/
-#undiscord summary {
+#purgecord summary {
     font-size: 16px;
     font-weight: 500;
     line-height: 20px;
@@ -143,32 +143,32 @@
     cursor: pointer;
     white-space: nowrap;
     text-overflow: ellipsis;
-    color: var(--interactive-normal);
+    color: var(--interactive-icon-default, var(--interactive-normal));
     border-radius: 4px;
     flex-shrink: 0;
 }
 
-#undiscord fieldset {
+#purgecord fieldset {
     padding-left: 8px;
 }
 
-#undiscord legend a {
+#purgecord legend a {
     float: right;
     text-transform: initial;
 }
 
-#undiscord progress {
+#purgecord progress {
     height: 8px;
     margin-top: 4px;
     flex-grow: 1;
 }
 
-#undiscord .importJson {
+#purgecord .importJson {
     display: flex;
     flex-direction: row;
 }
 
-#undiscord .importJson button {
+#purgecord .importJson button {
     margin-left: 5px;
     width: fit-content;
 }

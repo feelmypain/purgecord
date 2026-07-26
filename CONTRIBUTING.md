@@ -6,7 +6,7 @@
 Please do not make changes to the `.js` files in the top directory!  
 Only make changes to the files inside the `src/` folder, otherwise I can't merge your changes back to the project.
 
-Also, do not commit changes to the `deleteDiscordMessages.user.js` file!
+Also, do not commit changes to the `purgecord.user.js` file!
 
 Do not alter the version, because I may have to change this depending on the order of things that get merged into main. So please leave it as is to avoid conflicts.
 
@@ -33,7 +33,7 @@ If you're unfamilliar with compiled Javascript, this is how you do it:
 
 1. Clone the repository to your computer
 2. Open the terminal inside the cloned directory
-3. Run `npm i` to download the project dependencies 
+3. Run `npm ci` to download the project dependencies 
 4. Run `npm start` it will automatically compile the project, when you make changes
 
 ## Testing your changes locally
@@ -42,12 +42,12 @@ If you're unfamilliar with compiled Javascript, this is how you do it:
 [![Video Instructions](https://img.youtube.com/vi/AKTCvzvcPig/0.jpg)](https://www.youtube.com/watch?v=AKTCvzvcPig)
 https://www.youtube.com/watch?v=AKTCvzvcPig
 
-Open the URL that shows up in your console when you run `npm start` it will ask you to install a development version of Undiscord.
+Open the URL that shows up in your console when you run `npm start` it will ask you to install a development version of Purgecord.
 You need to click the update button every time you make changes in TamperMonkey, or reinstall it by opening the URL again.
 
 You can alternatively test manually:
 
-Copy the contents of the `deleteDiscordMessages.user.js` at the top of the repository,
+Copy the contents of the `purgecord.user.js` at the top of the repository,
 and paste it directly into your browser console.
 
 ----------------------------------------------------------------

@@ -1,20 +1,20 @@
 {
-  "name": "undiscord",
-  "nameFull": "Undiscord",
-  "version": "5.2.6",
-  "description": "Delete all messages in a Discord channel or DM (Bulk deletion)",
+  "name": "purgecord",
+  "nameFull": "Purgecord",
+  "version": "1.0.0",
+  "description": "Bulk-delete your own messages in a Discord channel, DM or server",
   "userScript": {
-    "namespace": "https://github.com/victornpb/deleteDiscordMessages",
+    "namespace": "https://github.com/feelmypain/purgecord",
     "match": [
       "https://*.discord.com/app",
       "https://*.discord.com/channels/*",
       "https://*.discord.com/login"
     ],
-    "icon": "https://victornpb.github.io/undiscord/images/icon128.png",
-    "downloadURL": "https://raw.githubusercontent.com/victornpb/undiscord/master/deleteDiscordMessages.user.js",
-    "contributionURL": "https://www.buymeacoffee.com/vitim",
+    "icon": "https://raw.githubusercontent.com/feelmypain/purgecord/main/images/icon128.png",
+    "downloadURL": "https://raw.githubusercontent.com/feelmypain/purgecord/main/purgecord.user.js",
     "grant": "none",
-    "attribution": "Original project (https://github.com/victornpb/undiscord)"
+    "attribution": "Fork of Undiscord by victornpb (https://github.com/victornpb/undiscord), MIT",
+    "updateURL": "https://raw.githubusercontent.com/feelmypain/purgecord/main/purgecord.user.js"
   },
   "license": "MIT",
   "engines": {
@@ -22,14 +22,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/victornpb/undiscord.git"
+    "url": "git+https://github.com/feelmypain/purgecord.git"
   },
   "bugs": {
-    "url": "https://github.com/victornpb/undiscord/discussions"
+    "url": "https://github.com/feelmypain/purgecord/issues"
   },
-  "homepage": "https://github.com/victornpb/undiscord",
-  "author": "victornpb",
-  "main": "deleteDiscordMessages.user.js",
+  "homepage": "https://github.com/feelmypain/purgecord",
+  "author": "feelmypain",
+  "main": "purgecord.user.js",
   "scripts": {
     "start": "npm run watch",
     "build": "rollup -c",
@@ -72,6 +72,6 @@
     }
   },
   "lint-staged": {
-    "src/**.js": "npm run lint"
+    "src/**/*.js": "npm run lint"
   }
 }

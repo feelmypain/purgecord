@@ -8,14 +8,14 @@ body:
       ### 🐞 This form is for bugs reports ONLY!
 
       * ❔ Questions, Help, Ideas, Feature requests or if you're not sure how to fill this form:
-         - Use the [💬 Discussion](https://github.com/victornpb/undiscord/discussions) tab instead
+         - Use the [💬 Discussion](https://github.com/feelmypain/purgecord/issues) tab instead
 
-      * Use the [🔎 Search](https://github.com/victornpb/undiscord/issues?q=TYPE_YOUR_SEARCH_HERE) to find duplicated issues before continuing.
+      * Use the [🔎 Search](https://github.com/feelmypain/purgecord/issues?q=TYPE_YOUR_SEARCH_HERE) to find duplicated issues before continuing.
 
       * 🚮 If you don't fill this form correctly your issue is going to be deleted!
 - type: input
   attributes:
-    label: Undiscord Version
+    label: Purgecord Version
     description: You can see the version in the bottom right corner or in the ViolentMonkey or TamperMonkey settings.
     placeholder: v0.0.0
   validations:
@@ -23,7 +23,7 @@ body:
 - type: input
   attributes:
     label: Browser
-    description: What browser you re using undiscord. Go to chrome://version/ and copy the version
+    description: What browser you re using Purgecord. Go to chrome://version/ and copy the version
     placeholder: 110.0.5481.177 (Official Build) (x86_64)
   validations:
     required: true

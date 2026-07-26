@@ -1,2 +1,2 @@
-import initUI from './undiscord-ui.js';
+import initUI from './purgecord-ui.js';
 initUI();

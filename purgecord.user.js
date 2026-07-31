@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Purgecord
 // @description Bulk-delete your own messages in a Discord channel, DM or server
-// @version     1.0.0
+// @version     1.0.1
 // @author      feelmypain
 // @homepageURL https://github.com/feelmypain/purgecord
 // @supportURL  https://github.com/feelmypain/purgecord/issues
@@ -20,7 +20,7 @@
 	'use strict';
 
 	/* rollup-plugin-baked-env */
-	const VERSION = "1.0.0";
+	const VERSION = "1.0.1";
 
 	var themeCss = (`
 /* purgecord window */
@@ -467,8 +467,8 @@
 
 	const PREFIX$1 = '[PURGECORD]';
 
-	/** Requests stay relative so they are same-origin on discord.com, ptb. and canary. */
-	const API = '/api/v9';
+	/** Absolute URLs also work in extension contexts that cannot resolve relative fetch URLs. */
+	const API = new URL('/api/v9', window.location.href).href;
 	/** Discord returns at most 25 hits per search page. */
 	const PAGE_SIZE = 25;
 	const REQUEST_TIMEOUT = 30000;

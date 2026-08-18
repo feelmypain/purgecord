@@ -232,14 +232,14 @@ click **fill** again.
 5. **Sweep.** When the walk reaches the end having deleted anything, it runs once more — Discord's search index lags
    behind deletions and can hide messages that were there the whole time.
 
-Errors are classified rather than blindly retried. A message that can never be deleted (system message, locked or
-archived thread, missing permission) is skipped once with an explanation instead of being retried forever. An
-expired token or a block from Discord's edge stops the run immediately, because retrying either one only makes it
-worse.
+Errors are classified rather than blindly retried. A message that can never be deleted (system message, locked
+thread, missing permission) is skipped once with an explanation instead of being retried forever. An expired token
+or a block from Discord's edge stops the run immediately, because retrying either one only makes it worse.
 
-**Messages in archived threads are skipped.** Deleting them requires un-archiving the thread first, which is a
-change everyone else in the server can see, so Purgecord does not do it silently. Open the thread yourself (which
-un-archives it) and run again.
+**Archived threads are reopened automatically.** Discord does not allow messages to be deleted while their thread
+is archived, so Purgecord reopens an unlocked thread when it encounters one and then retries the deletion. Reopening
+is visible to other server members, and the thread remains active until Discord archives it again. Locked threads,
+or threads you lack permission to reopen, are skipped with an explanation.
 
 ---
 
@@ -288,8 +288,8 @@ large or very old channels are slow by nature; a channel with tens of thousands 
 Run it again. Discord's search index can lag well behind reality, and a message it doesn't return can't be deleted.
 Purgecord already re-sweeps once at the end, but a second manual run costs nothing.
 
-Check the log for skipped messages too — messages in archived threads, in channels you have left, or posted by
-someone else are reported individually with the reason.
+Check the log for skipped messages too — locked threads, channels you have left, messages posted by someone else, or
+threads you lack permission to reopen are reported individually with the reason.
 
 </details>
 

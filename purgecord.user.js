@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Purgecord
 // @description Bulk-delete your own messages in a Discord channel, DM or server
-// @version     1.0.1
+// @version     1.0.2
 // @author      feelmypain
 // @homepageURL https://github.com/feelmypain/purgecord
 // @supportURL  https://github.com/feelmypain/purgecord/issues
@@ -20,7 +20,7 @@
 	'use strict';
 
 	/* rollup-plugin-baked-env */
-	const VERSION = "1.0.1";
+	const VERSION = "1.0.2";
 
 	var themeCss = (`
 /* purgecord window */
@@ -475,8 +475,8 @@
 	const MAX_SEARCH_ATTEMPTS = 20;
 	/** How many times a finished walk may restart to sweep up stragglers. */
 	const MAX_SWEEPS = 2;
-	/** Rate-limit retries for one message, separate from the user's maxAttempt. */
-	const MAX_THROTTLE_RETRIES = 5;
+	/** Transient retries for one message, separate from the user's maxAttempt. */
+	const MAX_TRANSIENT_RETRIES = 5;
 	const MAX_SEARCH_DELAY = 60000;
 	const MAX_DELETE_DELAY = 30000;
 	/** Padding on top of the retry_after Discord asks for, to survive clock skew. */
@@ -497,7 +497,6 @@
 	 */
 	const PERMANENT_DELETE_ERRORS = {
 	  50021: 'it is a system message',
-	  50083: 'the thread is archived (open the thread to unarchive it, then run again)',
 	  160005: 'the thread is locked',
 	  50013: 'you do not have permission to delete it',
 	  50001: 'you do not have access to that channel',
@@ -1062,11 +1061,11 @@
 	        `<sup>{ID:${redact(message.id)}}</sup>`
 	      );
 
-	      // Delete a single message. Being throttled is not the message's fault, so
-	      // it gets its own (larger) budget than an actual failure.
+	      // Rate limits and one-time thread recovery are not the message's fault,
+	      // so they get a larger budget than an actual request failure.
 	      let result = FAILED;
 	      let failures = 0;
-	      let throttles = 0;
+	      let transientRetries = 0;
 	      for (;;) {
 	        await this.pace('delete');
 	        if (!this.state.running) return log.error('Stopped by you!');
@@ -1074,7 +1073,7 @@
 	        result = await this.deleteMessage(message);
 
 	        if (result === RETRY) {
-	          if (++throttles >= MAX_THROTTLE_RETRIES) break;
+	          if (++transientRetries >= MAX_TRANSIENT_RETRIES) break;
 	        }
 	        else if (result === FAILED) {
 	          if (++failures >= this.options.maxAttempt) break;
@@ -1097,6 +1096,68 @@
 	      this.calcEtr();
 	      if (this.onProgress) this.onProgress(this.state, this.stats);
 	    }
+	  }
+
+	  /** Reopen an archived thread so the failed deletion can be retried. */
+	  async unarchiveThread(channelId) {
+	    // The failed DELETE also counts as a mutation request. Keep the configured
+	    // spacing before PATCHing the thread instead of firing both back to back.
+	    await this.pace('delete');
+	    if (!this.state.running) return RETRY;
+
+	    let resp;
+	    try {
+	      resp = await this.request(`${API}/channels/${channelId}`, {
+	        method: 'PATCH',
+	        headers: { 'Content-Type': 'application/json' },
+	        body: JSON.stringify({ archived: false }),
+	      });
+	    } catch (err) {
+	      log.error('Unarchive request threw an error:', escapeHTML(err && err.message || err));
+	      this.stats.deleteNextAt = Date.now() + this.effectiveDelay('delete');
+	      return FAILED;
+	    }
+
+	    const { json, text } = await readBody(resp);
+
+	    if (isEdgeBlock(resp, json)) throw this.edgeBlocked();
+	    if (resp.status === 429) return this.deferDeleteForRateLimit(resp, json);
+	    if (resp.status === 401) {
+	      throw new PurgecordError('Your authorization token is invalid or expired. Press "fill" to grab a fresh one.', { fatal: true, status: 401 });
+	    }
+
+	    this.updatePace('delete', resp);
+
+	    if (resp.ok) {
+	      this.relax('delete');
+	      log.success('Reopened the archived thread. Retrying the deletion...');
+	      return RETRY;
+	    }
+
+	    const code = json && json.code;
+	    if (resp.status === 403 || resp.status === 404 || code === 50001 || code === 50013 || code === 160005) {
+	      const reason = code === 160005
+	        ? 'it is locked'
+	        : 'you do not have permission to reopen it';
+	      log.warn(`Could not reopen the archived thread because ${reason}. Skipping this message.`);
+	      return SKIPPED;
+	    }
+
+	    log.error(`Error reopening the archived thread, API responded with status ${resp.status}!`, escapeHTML(text));
+	    return FAILED;
+	  }
+
+	  /** Apply Discord's requested cooldown to any mutation of a message/thread. */
+	  deferDeleteForRateLimit(resp, body) {
+	    this.penalize('delete', MAX_DELETE_DELAY);
+	    const asked = retryAfterMs(resp, body);
+	    const w = (asked > 0 ? asked : clamp(this.effectiveDelay('delete'), 500, MAX_DELETE_DELAY)) + RETRY_MARGIN;
+	    this.stats.throttledCount++;
+	    this.stats.throttledTotalTime += w;
+	    log.warn(`Being rate limited by the API for ${w}ms! Slowing down deletions...`);
+	    this.printStats();
+	    this.stats.deleteNextAt = Date.now() + w;
+	    return RETRY;
 	  }
 
 	  async deleteMessage(message) {
@@ -1123,20 +1184,7 @@
 
 	    const code = json && json.code;
 
-	    if (resp.status === 429) {
-	      // deleting messages too fast
-	      this.penalize('delete', MAX_DELETE_DELAY);
-	      const asked = retryAfterMs(resp, json);
-	      const w = (asked > 0 ? asked : clamp(this.effectiveDelay('delete'), 500, MAX_DELETE_DELAY)) + RETRY_MARGIN;
-	      this.stats.throttledCount++;
-	      this.stats.throttledTotalTime += w;
-	      log.warn(`Being rate limited by the API for ${w}ms! Slowing down deletions...`);
-	      this.printStats();
-	      // Retry-After is authoritative here, so gate the next attempt on it
-	      // directly instead of stacking another delay on top.
-	      this.stats.deleteNextAt = Date.now() + w;
-	      return RETRY;
-	    }
+	    if (resp.status === 429) return this.deferDeleteForRateLimit(resp, json);
 
 	    // Someone (or a previous run) already deleted it. That is the outcome we
 	    // wanted, but it is not proof that this run is making progress — see the
@@ -1158,6 +1206,11 @@
 	    }
 
 	    this.updatePace('delete', resp);
+
+	    if (code === 50083) {
+	      log.warn('This message is in an archived thread. Reopening the thread...');
+	      return this.unarchiveThread(message.channel_id);
+	    }
 
 	    const reason = PERMANENT_DELETE_ERRORS[code];
 	    if (reason || resp.status === 403) {

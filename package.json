@@ -1,7 +1,7 @@
 {
   "name": "purgecord",
   "nameFull": "Purgecord",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Bulk-delete your own messages in a Discord channel, DM or server",
   "userScript": {
     "namespace": "https://github.com/feelmypain/purgecord",
@@ -35,9 +35,10 @@
     "build": "rollup -c",
     "watch": "rollup -c -w",
     "prebuild": "rimraf dist",
-    "test": "npm run lint && npm run build",
-    "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
+    "test": "npm run lint && npm run test:unit && npm run build",
+    "test:unit": "node --test test/*.test.mjs",
+    "lint": "eslint --ext .js,.mjs src test",
+    "lint:fix": "eslint --ext .js,.mjs src test --fix",
     "version": "npm run build"
   },
   "files": [

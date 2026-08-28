@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Purgecord
 // @description Bulk-delete your own messages in a Discord channel, DM or server
-// @version     1.0.2
+// @version     1.1.0
 // @author      feelmypain
 // @homepageURL https://github.com/feelmypain/purgecord
 // @supportURL  https://github.com/feelmypain/purgecord/issues
@@ -20,7 +20,7 @@
 	'use strict';
 
 	/* rollup-plugin-baked-env */
-	const VERSION = "1.0.2";
+	const VERSION = "1.1.0";
 
 	var themeCss = (`
 /* purgecord window */
@@ -196,6 +196,7 @@
                             <input class="input" id="guildId" type="text" priv>
                         </div>
                         <button id="getGuild">current</button>
+                        <button id="getGuilds" title="Load all servers" aria-label="Load all servers">all</button>
                     </div>
                 </fieldset>
                 <fieldset>
@@ -210,7 +211,7 @@
                         <button id="getChannel">current</button>
                     </div>
                     <div class="sectionDescription">
-                        <label class="row"><input id="includeNsfw" type="checkbox">This is a NSFW channel</label>
+                        <label class="row"><input id="includeNsfw" type="checkbox">Include NSFW channels</label>
                     </div>
                 </fieldset>
             </details>
@@ -468,10 +469,10 @@
 	const PREFIX$1 = '[PURGECORD]';
 
 	/** Absolute URLs also work in extension contexts that cannot resolve relative fetch URLs. */
-	const API = new URL('/api/v9', window.location.href).href;
+	const API$1 = new URL('/api/v9', window.location.href).href;
 	/** Discord returns at most 25 hits per search page. */
 	const PAGE_SIZE = 25;
-	const REQUEST_TIMEOUT = 30000;
+	const REQUEST_TIMEOUT$1 = 30000;
 	const MAX_SEARCH_ATTEMPTS = 20;
 	/** How many times a finished walk may restart to sweep up stragglers. */
 	const MAX_SWEEPS = 2;
@@ -668,15 +669,16 @@
 	    this.options.askForConfirmation = true;
 	  }
 
-	  /** Automate the deletion process of multiple channels */
+	  /** Automate the deletion process across multiple channels or servers. */
 	  async runBatch(queue) {
 	    if (this.#busy) return log.error('Already running!');
 	    this.#busy = true;
+	    this.#batchTotal = queue.length;
 
 	    // Job options must not leak into the next job.
 	    const baseOptions = { ...this.options };
 
-	    log.info(`Runnning batch with queue of ${queue.length} jobs`);
+	    log.info(`Running batch with queue of ${queue.length} jobs`);
 	    this.state.running = true;
 	    // The batch owns the lifecycle: firing these per job would unlock the UI
 	    // (and kill the Stop button) during every inter-job pause.
@@ -688,12 +690,13 @@
 
 	        // Firing every job's first search back to back is a self-inflicted 429.
 	        if (i > 0) {
-	          log.verb(`Waiting ${(this.options.jobDelay / 1000).toFixed(1)}s before the next channel...`);
+	          log.verb(`Waiting ${(this.options.jobDelay / 1000).toFixed(1)}s before the next job...`);
 	          await this.cooldown(this.options.jobDelay);
 	          if (!this.state.running) break;
 	        }
 
 	        this.options = { ...baseOptions, ...queue[i] };
+	        this.#batchIndex = i + 1;
 	        log.info('Starting job...', `(${i + 1}/${queue.length})`);
 
 	        try {
@@ -721,6 +724,8 @@
 	      this.options = baseOptions;
 	      this.state.running = false;
 	      this.#busy = false;
+	      this.#batchIndex = 0;
+	      this.#batchTotal = 0;
 	      log.info('Batch finished.');
 	      if (this.onStop) this.onStop(this.state, this.stats);
 	    }
@@ -899,9 +904,13 @@
 	    log.verb('Waiting for your confirmation...');
 	    const preview = this.state._messagesToDelete.map(m => `${displayName(m.author)}: ${messagePreview(m)}`).join('\n');
 
+	    const batchNotice = this.#batchTotal > 1
+	      ? `\n\nThis is job ${this.#batchIndex} of ${this.#batchTotal}. The remaining jobs will continue without another confirmation.`
+	      : '';
 	    const answer = await ask(
-	      `Do you want to delete ~${this.state.grandTotal} messages? (Estimated time: ${msToHMS(this.stats.etr)})` +
+	      `Do you want to delete ~${this.state.grandTotal} messages? (Estimated time: ${msToHMS(this.stats.etr)})\n` +
 	      '(The actual number of messages may be less, depending if you\'re using filters to skip some messages)' +
+	      batchNotice +
 	      '\n\n---- Preview ----\n' +
 	      preview
 	    );
@@ -920,8 +929,8 @@
 	  async search() {
 	    const isDM = this.options.guildId === '@me';
 	    const url = isDM
-	      ? `${API}/channels/${this.options.channelId}/messages/search?` // DMs
-	      : `${API}/guilds/${this.options.guildId}/messages/search?`; // Server
+	      ? `${API$1}/channels/${this.options.channelId}/messages/search?` // DMs
+	      : `${API$1}/guilds/${this.options.guildId}/messages/search?`; // Server
 
 	    const query = queryString([
 	      ['limit', PAGE_SIZE],
@@ -1107,7 +1116,7 @@
 
 	    let resp;
 	    try {
-	      resp = await this.request(`${API}/channels/${channelId}`, {
+	      resp = await this.request(`${API$1}/channels/${channelId}`, {
 	        method: 'PATCH',
 	        headers: { 'Content-Type': 'application/json' },
 	        body: JSON.stringify({ archived: false }),
@@ -1163,7 +1172,7 @@
 	  async deleteMessage(message) {
 	    let resp;
 	    try {
-	      resp = await this.request(`${API}/channels/${message.channel_id}/messages/${message.id}`, { method: 'DELETE' });
+	      resp = await this.request(`${API$1}/channels/${message.channel_id}/messages/${message.id}`, { method: 'DELETE' });
 	    } catch (err) {
 	      // No response at all (network error, timeout). Nothing updated the pacing
 	      // clock, so re-arm it by hand or the retries fire back to back.
@@ -1233,7 +1242,7 @@
 	          'Authorization': this.options.authToken,
 	          ...init.headers,
 	        },
-	        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+	        signal: AbortSignal.timeout(REQUEST_TIMEOUT$1),
 	      });
 	    } finally {
 	      this.afterRequest();
@@ -1318,6 +1327,8 @@
 	   * not cleared by resetState() or by the Stop button, so it is what re-entry
 	   * is guarded on. */
 	  #busy = false;
+	  #batchIndex = 0;
+	  #batchTotal = 0;
 
 	  #beforeTs = 0; // used to calculate latency
 	  beforeRequest() {
@@ -1338,6 +1349,48 @@
 	      `Total time throttled: ${msToHMS(this.stats.throttledTotalTime)}.`
 	    );
 	  }
+	}
+
+	function parseIdList(value) {
+	  return [...new Set(String(value ?? '').split(/[\s,]+/).filter(Boolean))];
+	}
+
+	/**
+	 * Convert the two target fields into concrete jobs for the core batch runner.
+	 * A channel ID is only meaningful inside one guild, so cross-guild channel
+	 * lists are rejected instead of producing a mostly-invalid Cartesian product.
+	 */
+	function buildPurgePlan(guildInput, channelInput) {
+	  const guildIds = parseIdList(guildInput);
+	  const channelIds = parseIdList(channelInput);
+
+	  if (guildIds.length === 0) throw new Error('You must fill the "Server ID" field!');
+
+	  const badGuildIds = guildIds.filter(id => id !== '@me' && !isSnowflake(id));
+	  if (badGuildIds.length) throw new Error(`These are not valid Server IDs: ${badGuildIds.join(', ')}`);
+
+	  const badChannelIds = channelIds.filter(id => !isSnowflake(id));
+	  if (badChannelIds.length) throw new Error(`These are not valid Channel IDs: ${badChannelIds.join(', ')}`);
+
+	  if (guildIds.includes('@me') && guildIds.length > 1) {
+	    throw new Error('"@me" cannot be combined with Server IDs. Use it by itself for direct messages.');
+	  }
+
+	  if (guildIds.length > 1 && channelIds.length > 0) {
+	    throw new Error('When purging multiple servers, leave the "Channel ID" field empty.');
+	  }
+
+	  if (guildIds[0] === '@me' && channelIds.length === 0) {
+	    throw new Error('You must fill the "Channel ID" field to delete direct messages!');
+	  }
+
+	  const jobs = guildIds.length > 1
+	    ? guildIds.map(guildId => ({ guildId, channelId: undefined }))
+	    : channelIds.length > 0
+	      ? channelIds.map(channelId => ({ guildId: guildIds[0], channelId }))
+	      : [{ guildId: guildIds[0], channelId: undefined }];
+
+	  return { guildIds, channelIds, jobs };
 	}
 
 	const MOVE = 0;
@@ -1658,6 +1711,8 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 
 	/** Discord encrypts the stored token in the desktop app; that value is unusable here. */
 	const ENCRYPTED_TOKEN_PREFIX = 'dQw4w9WgXcQ:';
+	const API = new URL('/api/v9', window.location.href).href;
+	const REQUEST_TIMEOUT = 30000;
 
 	/**
 	 * Discord deletes window.localStorage, but only the window reference — the
@@ -1756,6 +1811,65 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 
 	  log.error('Could not detect your User ID, please fill the "Author ID" field manually.');
 	  return '';
+	}
+
+	function guildIdsFrom(value) {
+	  const guilds = Array.isArray(value) ? value : Object.values(value || {});
+	  return [...new Set(guilds
+	    .map(guild => guild && String(guild.id))
+	    .filter(isSnowflake))];
+	}
+
+	/** Return server IDs already held by Discord's in-memory guild store. */
+	function getGuildIds() {
+	  return fromWebpack(exports => {
+	    const candidates = [exports, exports && exports.default, exports && exports.Z, exports && exports.ZP];
+	    for (const store of candidates) {
+	      if (!store || typeof store.getGuild !== 'function' || typeof store.getGuilds !== 'function') continue;
+	      const ids = guildIdsFrom(store.getGuilds());
+	      if (ids.length) return ids;
+	    }
+	    return null;
+	  }) || [];
+	}
+
+	/** Fall back to Discord's current-user guild endpoint when the store moved. */
+	async function fetchGuildIds(authToken) {
+	  if (!looksLikeToken(authToken)) return [];
+
+	  let resp;
+	  try {
+	    resp = await fetch(`${API}/users/@me/guilds?limit=200`, {
+	      headers: { 'Authorization': authToken },
+	      signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+	    });
+	  } catch (err) {
+	    log.error('Could not load your servers:', err && err.message || err);
+	    return [];
+	  }
+
+	  let data;
+	  try { data = await resp.json(); } catch { data = null; }
+
+
+	  if ((data && data.code === 40333) || (resp.status === 429 && !data)) {
+	    log.error('Blocked by Cloudflare — stop for a while before making more Discord requests.');
+	    return [];
+	  }
+	  if (!resp.ok) {
+	    if (resp.status === 429) {
+	      const retryAfter = Number(data && data.retry_after);
+	      const suffix = Number.isFinite(retryAfter) && retryAfter > 0 ? ` Try again in ${retryAfter.toFixed(1)}s.` : '';
+	      log.warn(`Discord rate limited the server list request.${suffix}`);
+	    }
+	    else if (resp.status === 401) log.error('Your Authorization Token is invalid or expired.');
+	    else log.error(`Could not load your servers; Discord responded with status ${resp.status}.`);
+	    return [];
+	  }
+
+	  const ids = guildIdsFrom(data);
+	  if (!ids.length) log.warn('Discord did not return any servers for this account.');
+	  return ids;
 	}
 
 	function getGuildId() {
@@ -1894,6 +2008,28 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 	    const guildId = getGuildId();
 	    fillField('input#guildId', guildId);
 	    if (guildId === '@me') fillField('input#channelId', getChannelId());
+	  };
+	  let loadingGuilds = false;
+	  $('button#getGuilds').onclick = async () => {
+	    if (purgecordCore.busy) return log.error('Stop the current run before loading the server list.');
+	    if (loadingGuilds) return;
+	    loadingGuilds = true;
+	    try {
+	      let guildIds = getGuildIds();
+	      if (!guildIds.length) {
+	        const authToken = $('input#token').value.trim() || fillToken();
+	        if (!authToken) return;
+	        guildIds = await fetchGuildIds(authToken);
+	      }
+	      if (!guildIds.length) return;
+
+	      $('input#guildId').value = guildIds.join(',');
+	      $('input#channelId').value = '';
+	      if (!$('input#authorId').value.trim()) fillField('input#authorId', getAuthorId());
+	      log.info(`Loaded ${guildIds.length} servers. Channel ID was cleared so every server is purged in full.`);
+	    } finally {
+	      loadingGuilds = false;
+	    }
 	  };
 	  $('button#getChannel').onclick = () => {
 	    fillField('input#channelId', getChannelId());
@@ -2055,10 +2191,14 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 	  if (purgecordCore.busy) return log.error('Already running!');
 	  // general
 	  const authorId = $('input#authorId').value.trim();
-	  const guildId = $('input#guildId').value.trim();
-	  // An empty entry here used to survive as '' and turn a single-channel job
-	  // into a server-wide delete, so drop the blanks.
-	  const channelIds = $('input#channelId').value.split(/[\s,]+/).filter(Boolean);
+	  let plan;
+	  try {
+	    plan = buildPurgePlan($('input#guildId').value, $('input#channelId').value);
+	  } catch (err) {
+	    return log.error(escapeHTML(err && err.message || err));
+	  }
+	  const { guildIds, jobs } = plan;
+	  const { guildId, channelId } = jobs[0];
 	  const includeNsfw = $('input#includeNsfw').checked;
 	  // filter
 	  const content = $('input#search').value.trim();
@@ -2076,22 +2216,17 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 	  const searchDelay = parseInt($('input#searchDelay').value.trim()) || 2000;
 	  const deleteDelay = parseInt($('input#deleteDelay').value.trim()) || 1000;
 
-	  // token
-	  const authToken = $('input#token').value.trim() || fillToken();
-	  if (!authToken) return; // get token already logs an error.
-
-	  // validate input
-	  if (!guildId) return log.error('You must fill the "Server ID" field!');
-	  if (guildId !== '@me' && !isSnowflake(guildId)) return log.error('"Server ID" must be a Discord id, or "@me" for direct messages.');
-	  if (guildId === '@me' && channelIds.length === 0) return log.error('You must fill the "Channel ID" field to delete direct messages!');
-
-	  const badChannelIds = channelIds.filter(id => !isSnowflake(id));
-	  if (badChannelIds.length) return log.error('These are not valid Channel IDs:', escapeHTML(badChannelIds.join(', ')));
 
 	  if (authorId && !isSnowflake(authorId)) return log.error('"Author ID" must be a Discord id.');
+	  if (guildIds.length > 1 && !authorId) {
+	    return log.error('"Author ID" is required when purging multiple servers. Click "me" to use your own account.');
+	  }
 	  for (const [label, value] of [['After a message', minId], ['Before a message', maxId]]) {
 	    if (value && !isSnowflake(value)) return log.error(`"${label}" must be a message id.`, escapeHTML(value));
 	  }
+	  // token
+	  const authToken = $('input#token').value.trim() || fillToken();
+	  if (!authToken) return; // get token already logs an error.
 
 	  // clear logArea
 	  ui.logArea.innerHTML = '';
@@ -2102,7 +2237,7 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 	    authToken,
 	    authorId,
 	    guildId,
-	    channelId: channelIds.length === 1 ? channelIds[0] : undefined, // single or multiple channel
+	    channelId,
 	    minId: minId || minDate,
 	    maxId: maxId || maxDate,
 	    content,
@@ -2117,18 +2252,8 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 	  };
 
 	  try {
-	    // multiple channels
-	    if (channelIds.length > 1) {
-	      const jobs = channelIds.map(ch => ({
-	        guildId: guildId,
-	        channelId: ch,
-	      }));
-	      await purgecordCore.runBatch(jobs);
-	    }
-	    // single channel (or the whole server, when no channel is given)
-	    else {
-	      await purgecordCore.run();
-	    }
+	    if (jobs.length > 1) await purgecordCore.runBatch(jobs);
+	    else await purgecordCore.run();
 	  } catch (err) {
 	    log.error('CoreException', escapeHTML(err && err.message || err));
 	  } finally {

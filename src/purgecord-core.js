@@ -214,15 +214,16 @@ class PurgecordCore {
     this.options.askForConfirmation = true;
   }
 
-  /** Automate the deletion process of multiple channels */
+  /** Automate the deletion process across multiple channels or servers. */
   async runBatch(queue) {
     if (this.#busy) return log.error('Already running!');
     this.#busy = true;
+    this.#batchTotal = queue.length;
 
     // Job options must not leak into the next job.
     const baseOptions = { ...this.options };
 
-    log.info(`Runnning batch with queue of ${queue.length} jobs`);
+    log.info(`Running batch with queue of ${queue.length} jobs`);
     this.state.running = true;
     // The batch owns the lifecycle: firing these per job would unlock the UI
     // (and kill the Stop button) during every inter-job pause.
@@ -234,12 +235,13 @@ class PurgecordCore {
 
         // Firing every job's first search back to back is a self-inflicted 429.
         if (i > 0) {
-          log.verb(`Waiting ${(this.options.jobDelay / 1000).toFixed(1)}s before the next channel...`);
+          log.verb(`Waiting ${(this.options.jobDelay / 1000).toFixed(1)}s before the next job...`);
           await this.cooldown(this.options.jobDelay);
           if (!this.state.running) break;
         }
 
         this.options = { ...baseOptions, ...queue[i] };
+        this.#batchIndex = i + 1;
         log.info('Starting job...', `(${i + 1}/${queue.length})`);
 
         try {
@@ -267,6 +269,8 @@ class PurgecordCore {
       this.options = baseOptions;
       this.state.running = false;
       this.#busy = false;
+      this.#batchIndex = 0;
+      this.#batchTotal = 0;
       log.info('Batch finished.');
       if (this.onStop) this.onStop(this.state, this.stats);
     }
@@ -445,9 +449,13 @@ class PurgecordCore {
     log.verb('Waiting for your confirmation...');
     const preview = this.state._messagesToDelete.map(m => `${displayName(m.author)}: ${messagePreview(m)}`).join('\n');
 
+    const batchNotice = this.#batchTotal > 1
+      ? `\n\nThis is job ${this.#batchIndex} of ${this.#batchTotal}. The remaining jobs will continue without another confirmation.`
+      : '';
     const answer = await ask(
-      `Do you want to delete ~${this.state.grandTotal} messages? (Estimated time: ${msToHMS(this.stats.etr)})` +
+      `Do you want to delete ~${this.state.grandTotal} messages? (Estimated time: ${msToHMS(this.stats.etr)})\n` +
       '(The actual number of messages may be less, depending if you\'re using filters to skip some messages)' +
+      batchNotice +
       '\n\n---- Preview ----\n' +
       preview
     );
@@ -864,6 +872,8 @@ class PurgecordCore {
    * not cleared by resetState() or by the Stop button, so it is what re-entry
    * is guarded on. */
   #busy = false;
+  #batchIndex = 0;
+  #batchTotal = 0;
 
   #beforeTs = 0; // used to calculate latency
   beforeRequest() {

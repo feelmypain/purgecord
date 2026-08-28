@@ -101,6 +101,12 @@ stay deleted; nothing else is touched.
 **Delete everything you ever said in a whole server:** same as above, but click **current** next to *Server ID* and
 leave *Channel ID* **empty**. Purgecord will search the entire server.
 
+**Delete across several or all servers:** fill *Author ID* (normally with **me**) and leave *Channel ID* empty, then
+either paste a comma- or space-separated list into *Server ID*, or click **all** to load every server on your account.
+Purgecord runs them one at a time with a pause between servers. The confirmation shows the first target and states
+how many jobs are in the batch. Author ID is mandatory for multi-server runs so an empty field cannot broaden the
+operation to other people's messages.
+
 > Leaving *Author ID* empty means "delete every message that matches, regardless of who wrote it". You almost never
 > want that — Discord will refuse anything that isn't yours (Purgecord skips those), but it is slow and noisy. Fill
 > in *Author ID*.
@@ -118,20 +124,30 @@ messages too. Anything you lack permission for is skipped automatically.
 
 ### Server ID
 
-Which server to search. Click **current** while viewing the server.
+Which server or servers to search.
 
-For direct messages this is the literal string `@me`, and *Channel ID* then becomes required.
+- **Current server** — click **current**, or paste one server ID.
+- **Several servers** — paste a comma- or space-separated list. Each server is purged in full, one after another.
+- **Every server** — click **all**. Purgecord reads Discord's already-loaded server list when available, otherwise it
+  makes one authenticated request to Discord's own API. This only fills the field; review it before pressing Delete.
+- **Direct messages** — use the literal string `@me`. It cannot be mixed with server IDs and requires Channel ID.
+
+Leave *Channel ID* empty when selecting more than one server. Purgecord cannot safely infer which manually entered
+channels belong to which servers, so it rejects that ambiguous combination instead of guessing.
+
+*Author ID* is required for multi-server batches. The **all** button fills it with your account automatically when
+Purgecord can detect it.
 
 ### Channel ID
 
-Which channel to search.
+Which channel to search. Channel IDs can only be combined when *Server ID* contains one server or `@me`.
 
 - **One channel** — paste one ID, or click **current**.
 - **Several channels** — paste a comma- or space-separated list. Purgecord runs them as a queue, one after another,
   pausing between each so it doesn't trip the rate limiter.
-- **The whole server** — leave it empty (requires *Server ID* to be a real server, not `@me`).
+- **The whole server** — leave it empty (requires *Server ID* to contain one or more real server IDs, not `@me`).
 
-`This is a NSFW channel` must be ticked for age-restricted channels, otherwise Discord's search returns nothing.
+`Include NSFW channels` must be ticked to search age-restricted channels; otherwise Discord omits them.
 
 ### Wipe a Discord data archive
 

@@ -1,7 +1,7 @@
 {
   "name": "purgecord",
   "nameFull": "Purgecord",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Bulk-delete your own messages in a Discord channel, DM or server",
   "userScript": {
     "namespace": "https://github.com/feelmypain/purgecord",

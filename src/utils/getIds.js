@@ -3,6 +3,8 @@ import { isSnowflake } from './helpers';
 
 /** Discord encrypts the stored token in the desktop app; that value is unusable here. */
 const ENCRYPTED_TOKEN_PREFIX = 'dQw4w9WgXcQ:';
+const API = new URL('/api/v9', window.location.href).href;
+const REQUEST_TIMEOUT = 30000;
 
 /**
  * Discord deletes window.localStorage, but only the window reference — the
@@ -101,6 +103,65 @@ export function getAuthorId() {
 
   log.error('Could not detect your User ID, please fill the "Author ID" field manually.');
   return '';
+}
+
+function guildIdsFrom(value) {
+  const guilds = Array.isArray(value) ? value : Object.values(value || {});
+  return [...new Set(guilds
+    .map(guild => guild && String(guild.id))
+    .filter(isSnowflake))];
+}
+
+/** Return server IDs already held by Discord's in-memory guild store. */
+export function getGuildIds() {
+  return fromWebpack(exports => {
+    const candidates = [exports, exports && exports.default, exports && exports.Z, exports && exports.ZP];
+    for (const store of candidates) {
+      if (!store || typeof store.getGuild !== 'function' || typeof store.getGuilds !== 'function') continue;
+      const ids = guildIdsFrom(store.getGuilds());
+      if (ids.length) return ids;
+    }
+    return null;
+  }) || [];
+}
+
+/** Fall back to Discord's current-user guild endpoint when the store moved. */
+export async function fetchGuildIds(authToken) {
+  if (!looksLikeToken(authToken)) return [];
+
+  let resp;
+  try {
+    resp = await fetch(`${API}/users/@me/guilds?limit=200`, {
+      headers: { 'Authorization': authToken },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+    });
+  } catch (err) {
+    log.error('Could not load your servers:', err && err.message || err);
+    return [];
+  }
+
+  let data;
+  try { data = await resp.json(); } catch { data = null; }
+
+
+  if ((data && data.code === 40333) || (resp.status === 429 && !data)) {
+    log.error('Blocked by Cloudflare — stop for a while before making more Discord requests.');
+    return [];
+  }
+  if (!resp.ok) {
+    if (resp.status === 429) {
+      const retryAfter = Number(data && data.retry_after);
+      const suffix = Number.isFinite(retryAfter) && retryAfter > 0 ? ` Try again in ${retryAfter.toFixed(1)}s.` : '';
+      log.warn(`Discord rate limited the server list request.${suffix}`);
+    }
+    else if (resp.status === 401) log.error('Your Authorization Token is invalid or expired.');
+    else log.error(`Could not load your servers; Discord responded with status ${resp.status}.`);
+    return [];
+  }
+
+  const ids = guildIdsFrom(data);
+  if (!ids.length) log.warn('Discord did not return any servers for this account.');
+  return ids;
 }
 
 export function getGuildId() {

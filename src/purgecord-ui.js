@@ -9,11 +9,12 @@ import buttonHtml from './ui/purgecord-button.html';
 import purgecordTemplate from './ui/purgecord.html';
 
 import PurgecordCore from './purgecord-core';
+import { buildPurgePlan } from './purgecord-plan.js';
 import Drag from './utils/drag';
 import createElm from './utils/createElm';
 import insertCss from './utils/insertCss';
 import messagePicker from './utils/messagePicker';
-import { getAuthorId, getGuildId, getChannelId, fillToken } from './utils/getIds';
+import { getAuthorId, getGuildId, getGuildIds, fetchGuildIds, getChannelId, fillToken } from './utils/getIds';
 
 import { log, setLogFn } from './utils/log.js';
 import { replaceInterpolations, msToHMS, escapeHTML, isSnowflake } from './utils/helpers';
@@ -126,6 +127,28 @@ function initUI() {
     const guildId = getGuildId();
     fillField('input#guildId', guildId);
     if (guildId === '@me') fillField('input#channelId', getChannelId());
+  };
+  let loadingGuilds = false;
+  $('button#getGuilds').onclick = async () => {
+    if (purgecordCore.busy) return log.error('Stop the current run before loading the server list.');
+    if (loadingGuilds) return;
+    loadingGuilds = true;
+    try {
+      let guildIds = getGuildIds();
+      if (!guildIds.length) {
+        const authToken = $('input#token').value.trim() || fillToken();
+        if (!authToken) return;
+        guildIds = await fetchGuildIds(authToken);
+      }
+      if (!guildIds.length) return;
+
+      $('input#guildId').value = guildIds.join(',');
+      $('input#channelId').value = '';
+      if (!$('input#authorId').value.trim()) fillField('input#authorId', getAuthorId());
+      log.info(`Loaded ${guildIds.length} servers. Channel ID was cleared so every server is purged in full.`);
+    } finally {
+      loadingGuilds = false;
+    }
   };
   $('button#getChannel').onclick = () => {
     fillField('input#channelId', getChannelId());
@@ -287,10 +310,14 @@ async function startAction() {
   if (purgecordCore.busy) return log.error('Already running!');
   // general
   const authorId = $('input#authorId').value.trim();
-  const guildId = $('input#guildId').value.trim();
-  // An empty entry here used to survive as '' and turn a single-channel job
-  // into a server-wide delete, so drop the blanks.
-  const channelIds = $('input#channelId').value.split(/[\s,]+/).filter(Boolean);
+  let plan;
+  try {
+    plan = buildPurgePlan($('input#guildId').value, $('input#channelId').value);
+  } catch (err) {
+    return log.error(escapeHTML(err && err.message || err));
+  }
+  const { guildIds, jobs } = plan;
+  const { guildId, channelId } = jobs[0];
   const includeNsfw = $('input#includeNsfw').checked;
   // filter
   const content = $('input#search').value.trim();
@@ -308,22 +335,17 @@ async function startAction() {
   const searchDelay = parseInt($('input#searchDelay').value.trim()) || 2000;
   const deleteDelay = parseInt($('input#deleteDelay').value.trim()) || 1000;
 
-  // token
-  const authToken = $('input#token').value.trim() || fillToken();
-  if (!authToken) return; // get token already logs an error.
-
-  // validate input
-  if (!guildId) return log.error('You must fill the "Server ID" field!');
-  if (guildId !== '@me' && !isSnowflake(guildId)) return log.error('"Server ID" must be a Discord id, or "@me" for direct messages.');
-  if (guildId === '@me' && channelIds.length === 0) return log.error('You must fill the "Channel ID" field to delete direct messages!');
-
-  const badChannelIds = channelIds.filter(id => !isSnowflake(id));
-  if (badChannelIds.length) return log.error('These are not valid Channel IDs:', escapeHTML(badChannelIds.join(', ')));
 
   if (authorId && !isSnowflake(authorId)) return log.error('"Author ID" must be a Discord id.');
+  if (guildIds.length > 1 && !authorId) {
+    return log.error('"Author ID" is required when purging multiple servers. Click "me" to use your own account.');
+  }
   for (const [label, value] of [['After a message', minId], ['Before a message', maxId]]) {
     if (value && !isSnowflake(value)) return log.error(`"${label}" must be a message id.`, escapeHTML(value));
   }
+  // token
+  const authToken = $('input#token').value.trim() || fillToken();
+  if (!authToken) return; // get token already logs an error.
 
   // clear logArea
   ui.logArea.innerHTML = '';
@@ -334,7 +356,7 @@ async function startAction() {
     authToken,
     authorId,
     guildId,
-    channelId: channelIds.length === 1 ? channelIds[0] : undefined, // single or multiple channel
+    channelId,
     minId: minId || minDate,
     maxId: maxId || maxDate,
     content,
@@ -349,18 +371,8 @@ async function startAction() {
   };
 
   try {
-    // multiple channels
-    if (channelIds.length > 1) {
-      const jobs = channelIds.map(ch => ({
-        guildId: guildId,
-        channelId: ch,
-      }));
-      await purgecordCore.runBatch(jobs);
-    }
-    // single channel (or the whole server, when no channel is given)
-    else {
-      await purgecordCore.run();
-    }
+    if (jobs.length > 1) await purgecordCore.runBatch(jobs);
+    else await purgecordCore.run();
   } catch (err) {
     log.error('CoreException', escapeHTML(err && err.message || err));
   } finally {

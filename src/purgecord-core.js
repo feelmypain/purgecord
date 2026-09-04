@@ -15,8 +15,9 @@ import {
 
 /** Absolute URLs also work in extension contexts that cannot resolve relative fetch URLs. */
 const API = new URL('/api/v9', window.location.href).href;
-/** Discord returns at most 25 hits per search page. */
+/** Discord search pages contain at most 25 hits; history pages contain 100 messages. */
 const PAGE_SIZE = 25;
+const HISTORY_PAGE_SIZE = 100;
 const REQUEST_TIMEOUT = 30000;
 const MAX_SEARCH_ATTEMPTS = 20;
 /** How many times a finished walk may restart to sweep up stragglers. */
@@ -107,6 +108,25 @@ function messageText(message) {
   return parts.join('\n');
 }
 
+function messageHasLink(message) {
+  if (/(?:https?:\/\/|www\.)\S+/i.test(messageText(message))) return true;
+  return Array.isArray(message.embeds) && message.embeds.some(embed => embed && typeof embed.url === 'string' && embed.url);
+}
+
+function matchesHistoryFilters(message, options) {
+  if (!/^\d+$/.test(message.id)) return false;
+  const id = BigInt(message.id);
+  const minId = toSnowflake(options.minId);
+  const maxId = toSnowflake(options.maxId);
+  if (minId && id <= BigInt(minId)) return false;
+  if (maxId && id >= BigInt(maxId)) return false;
+  if (options.authorId && String(message.author && message.author.id) !== String(options.authorId)) return false;
+  if (options.content && !messageText(message).toLocaleLowerCase().includes(String(options.content).toLocaleLowerCase())) return false;
+  if (options.hasLink && !messageHasLink(message)) return false;
+  if (options.hasFile && !(Array.isArray(message.attachments) && message.attachments.length)) return false;
+  return true;
+}
+
 /** A short human label for messages that have no text of their own. */
 function messagePreview(message) {
   const text = messageText(message);
@@ -155,10 +175,15 @@ class PurgecordCore {
     failCount: 0,
     grandTotal: 0,
     iterations: 0,
-    cursorId: null, // max_id of the next search page (see advanceCursor)
+    cursorId: null, // ID before which the next page is fetched
     emptyPages: 0,
+    historyMode: false, // DMs are walked directly because channel search is unreliable
+    historyDone: false,
+    historyValidated: false,
+    historyScanned: 0,
 
     _searchResponse: null,
+    _pageMessages: [], // every message that advances the cursor, including non-matches
     _messagesToDelete: [],
     _skippedMessages: [],
   };
@@ -186,7 +211,6 @@ class PurgecordCore {
 
   /** Whether a run or batch is currently in flight. */
   get busy() { return this.#busy; }
-
   resetState() {
     this.state = {
       running: false,
@@ -197,8 +221,13 @@ class PurgecordCore {
       iterations: 0,
       cursorId: null,
       emptyPages: 0,
+      historyMode: false,
+      historyDone: false,
+      historyValidated: false,
+      historyScanned: 0,
 
       _searchResponse: null,
+      _pageMessages: [],
       _messagesToDelete: [],
       _skippedMessages: [],
     };
@@ -281,12 +310,14 @@ class PurgecordCore {
     if (this.#busy && !isJob) return log.error('Already running!');
     if (!this.options.guildId) return log.error('You must fill the "Server ID" field!');
     if (this.options.guildId === '@me' && !this.options.channelId) return log.error('You must fill the "Channel ID" field to delete direct messages!');
+    if (this.options.guildId === '@me' && !this.options.authorId) return log.error('You must fill the "Author ID" field to delete direct messages safely!');
     if (!isJob) this.#busy = true;
 
     this.state.running = true;
     this.stats.startTime = new Date();
     // The walk starts at the user's upper bound and moves backwards in time.
     this.state.cursorId = toSnowflake(this.options.maxId) || null;
+    this.state.historyMode = this.options.guildId === '@me';
 
     log.success(`\nStarted at ${this.stats.startTime.toLocaleString()}`);
     log.debug(
@@ -321,26 +352,45 @@ class PurgecordCore {
         if (!data) break; // nothing more we can do with this channel
 
         this.filterResponse(data);
+        if (this.state.historyMode && this.onProgress) this.onProgress(this.state, this.stats);
 
         const found = this.state._messagesToDelete.length + this.state._skippedMessages.length;
-        log.verb(
-          `Grand total: ${this.state.grandTotal}`,
-          `(Messages in current page: ${found}`,
-          `To be deleted: ${this.state._messagesToDelete.length}`,
-          `Skipped: ${this.state._skippedMessages.length})`
-        );
+        if (this.state.historyMode) {
+          log.verb(
+            `Matching messages found so far: ${this.state.grandTotal}`,
+            `(Messages scanned: ${this.state.historyScanned}`,
+            `In current page: ${this.state._pageMessages.length}`,
+            `Matching filters: ${found}`,
+            `To be deleted: ${this.state._messagesToDelete.length}`,
+            `Skipped: ${this.state._skippedMessages.length})`
+          );
+        }
+        else {
+          log.verb(
+            `Grand total: ${this.state.grandTotal}`,
+            `(Messages in current page: ${found}`,
+            `To be deleted: ${this.state._messagesToDelete.length}`,
+            `Skipped: ${this.state._skippedMessages.length})`
+          );
+        }
         this.printStats();
 
-        // Calculate estimated time
-        this.calcEtr();
-        log.verb(`Estimated time remaining: ${msToHMS(this.stats.etr)}`);
+        if (this.state.historyMode) {
+          this.stats.etr = 0;
+          log.verb('Estimated time remaining: unknown until the full history is scanned.');
+        }
+        else {
+          this.calcEtr();
+          log.verb(`Estimated time remaining: ${msToHMS(this.stats.etr)}`);
+        }
 
-        if (found === 0) {
-          // Discord's search index lags behind deletions, so a single empty
-          // page does not mean the channel is clean.
+        const pageSize = this.state.historyMode ? this.state._pageMessages.length : found;
+        if (pageSize === 0) {
+          // A direct history walk ends on the first empty page. Search results
+          // get extra checks because Discord's index can briefly hide hits.
           const remaining = Number(data.total_results) || 0;
-          if (remaining === 0 || this.state.emptyPages >= this.options.emptyPageRetries) {
-            if (this.state.confirmedDelCount > deletedBeforePass && sweeps < MAX_SWEEPS) {
+          if (this.state.historyMode || remaining === 0 || this.state.emptyPages >= this.options.emptyPageRetries) {
+            if (!this.state.historyMode && this.state.confirmedDelCount > deletedBeforePass && sweeps < MAX_SWEEPS) {
               sweeps++;
               log.verb(`Reached the end. Sweeping the channel again to catch anything the search index was hiding... (${sweeps}/${MAX_SWEEPS})`);
               deletedBeforePass = this.state.confirmedDelCount;
@@ -348,7 +398,9 @@ class PurgecordCore {
               this.state.emptyPages = 0;
               continue;
             }
-            log.verb('Ended because the API returned an empty page.');
+            log.verb(this.state.historyMode
+              ? 'Reached the beginning of the channel history.'
+              : 'Ended because the API returned an empty page.');
             if (isJob) break; // break without stopping if this is part of a job
             this.state.running = false;
             break;
@@ -375,9 +427,9 @@ class PurgecordCore {
           await this.deleteMessagesFromList();
         }
         else {
-          // A page full of things we cannot delete (system messages, pinned,
-          // filtered out). Nothing to do but page past them.
-          log.verb('There\'s nothing we can delete on this page, checking next page...');
+          log.verb(this.state.historyMode
+            ? 'No matching messages on this history page, checking older messages...'
+            : 'There\'s nothing we can delete on this page, checking next page...');
         }
 
         // Walk past everything this page returned. Paging by id instead of by
@@ -417,7 +469,7 @@ class PurgecordCore {
    * as inclusive.
    */
   advanceCursor() {
-    const page = this.state._messagesToDelete.concat(this.state._skippedMessages);
+    const page = this.state._pageMessages;
     if (!page.length) return;
 
     // The page is sorted newest first, but do not trust that for correctness.
@@ -452,13 +504,11 @@ class PurgecordCore {
     const batchNotice = this.#batchTotal > 1
       ? `\n\nThis is job ${this.#batchIndex} of ${this.#batchTotal}. The remaining jobs will continue without another confirmation.`
       : '';
-    const answer = await ask(
-      `Do you want to delete ~${this.state.grandTotal} messages? (Estimated time: ${msToHMS(this.stats.etr)})\n` +
-      '(The actual number of messages may be less, depending if you\'re using filters to skip some messages)' +
-      batchNotice +
-      '\n\n---- Preview ----\n' +
-      preview
-    );
+    const summary = this.state.historyMode
+      ? `Do you want to scan this entire chat history and delete every matching message?\n${this.state.grandTotal} matching message(s) found so far; the final total is unknown until older history is scanned.`
+      : `Do you want to delete ~${this.state.grandTotal} messages? (Estimated time: ${msToHMS(this.stats.etr)})\n` +
+        '(The actual number of messages may be less, depending if you\'re using filters to skip some messages)';
+    const answer = await ask(summary + batchNotice + '\n\n---- Preview ----\n' + preview);
 
     if (!answer) {
       log.error('Aborted by you!');
@@ -471,16 +521,151 @@ class PurgecordCore {
     }
   }
 
-  async search() {
-    const isDM = this.options.guildId === '@me';
-    const url = isDM
-      ? `${API}/channels/${this.options.channelId}/messages/search?` // DMs
-      : `${API}/guilds/${this.options.guildId}/messages/search?`; // Server
+  /** Ensure an @me target is a DM or group DM before walking its history. */
+  async validatePrivateChannel() {
+    const url = `${API}/channels/${this.options.channelId}`;
 
+    for (let attempt = 1; attempt <= MAX_SEARCH_ATTEMPTS; attempt++) {
+      if (!this.state.running) return false;
+
+      let resp;
+      try {
+        resp = await this.request(url);
+      } catch (err) {
+        log.warn('Channel lookup failed:', escapeHTML(err && err.message || err));
+        this.penalize('search', MAX_SEARCH_DELAY);
+        await this.cooldown(this.effectiveDelay('search'));
+        continue;
+      }
+
+      const { json, text } = await readBody(resp);
+      if (isEdgeBlock(resp, json)) throw this.edgeBlocked();
+
+      if (resp.status === 429) {
+        this.penalize('search', MAX_SEARCH_DELAY);
+        const asked = retryAfterMs(resp, json);
+        const w = (asked > 0 ? asked : clamp(this.effectiveDelay('search'), 1000, MAX_SEARCH_DELAY)) + RETRY_MARGIN;
+        this.stats.throttledCount++;
+        this.stats.throttledTotalTime += w;
+        log.warn(`Being rate limited by the API for ${w}ms! Slowing down channel lookups...`);
+        this.printStats();
+        await this.cooldown(w);
+        continue;
+      }
+
+      if (!resp.ok) {
+        const code = json && json.code;
+        if (resp.status === 401) {
+          throw new PurgecordError('Your authorization token is invalid or expired. Press "fill" to grab a fresh one.', { fatal: true, status: 401 });
+        }
+        if (resp.status === 403 || resp.status === 404 || code === 50001 || code === 50024) {
+          log.warn(`Skipping this channel, the API responded with status ${resp.status}:`, escapeHTML(text));
+          return false;
+        }
+        throw new PurgecordError(`Error checking the channel, API responded with status ${resp.status}! ${text}`, { status: resp.status, code });
+      }
+
+      this.updatePace('search', resp);
+      this.relax('search');
+
+      if (!json || (json.type !== 1 && json.type !== 3)) {
+        log.warn('Skipping this archive entry because it is not a DM or group DM.');
+        return false;
+      }
+
+      this.state.historyValidated = true;
+      return true;
+    }
+
+    throw new PurgecordError(`Giving up on checking the channel after ${MAX_SEARCH_ATTEMPTS} attempts.`);
+  }
+
+  async history() {
+    if (this.state.historyDone) return { _history: true, total_results: 0, messages: [] };
+    if (!this.state.historyValidated) {
+      if (!await this.validatePrivateChannel()) return null;
+      await this.pace('search');
+    }
+
+    const query = queryString([
+      ['limit', HISTORY_PAGE_SIZE],
+      ['before', this.state.cursorId || undefined],
+    ]);
+    const url = `${API}/channels/${this.options.channelId}/messages?${query}`;
+
+    for (let attempt = 1; attempt <= MAX_SEARCH_ATTEMPTS; attempt++) {
+      if (!this.state.running) return null;
+
+      let resp;
+      try {
+        resp = await this.request(url);
+      } catch (err) {
+        log.warn('History request failed:', escapeHTML(err && err.message || err));
+        this.penalize('search', MAX_SEARCH_DELAY);
+        await this.cooldown(this.effectiveDelay('search'));
+        continue;
+      }
+
+      const { json, text } = await readBody(resp);
+      if (isEdgeBlock(resp, json)) throw this.edgeBlocked();
+
+      if (resp.status === 429) {
+        this.penalize('search', MAX_SEARCH_DELAY);
+        const asked = retryAfterMs(resp, json);
+        const w = (asked > 0 ? asked : clamp(this.effectiveDelay('search'), 1000, MAX_SEARCH_DELAY)) + RETRY_MARGIN;
+        this.stats.throttledCount++;
+        this.stats.throttledTotalTime += w;
+        log.warn(`Being rate limited by the API for ${w}ms! Slowing down history requests...`);
+        this.printStats();
+        await this.cooldown(w);
+        continue;
+      }
+
+      if (!resp.ok) {
+        const code = json && json.code;
+        if (resp.status === 401) {
+          throw new PurgecordError('Your authorization token is invalid or expired. Press "fill" to grab a fresh one.', { fatal: true, status: 401 });
+        }
+        if (resp.status === 403 || resp.status === 404 || code === 50001 || code === 50024) {
+          log.warn(`Skipping this channel, the API responded with status ${resp.status}:`, escapeHTML(text));
+          return null;
+        }
+        throw new PurgecordError(`Error fetching channel history, API responded with status ${resp.status}! ${text}`, { status: resp.status, code });
+      }
+
+      this.updatePace('search', resp);
+      this.relax('search');
+
+      if (!Array.isArray(json)) {
+        throw new PurgecordError('Discord returned an invalid channel history response. Stopping instead of guessing what to delete.');
+      }
+      const rawMessages = json;
+      this.state.historyScanned += rawMessages.length;
+      let messages = rawMessages;
+      const minId = toSnowflake(this.options.minId);
+      if (minId) {
+        const boundary = BigInt(minId);
+        messages = rawMessages.filter(message => /^\d+$/.test(message.id) && BigInt(message.id) > boundary);
+        if (messages.length !== rawMessages.length) this.state.historyDone = true;
+      }
+
+      const data = { _history: true, total_results: 0, messages };
+      this.state._searchResponse = data;
+      if (this.options.debug) console.log(PREFIX, 'history', data);
+      return data;
+    }
+
+    throw new PurgecordError(`Giving up on fetching channel history after ${MAX_SEARCH_ATTEMPTS} attempts.`);
+  }
+
+  async search() {
+    if (this.state.historyMode) return this.history();
+
+    const url = `${API}/guilds/${this.options.guildId}/messages/search?`;
     const query = queryString([
       ['limit', PAGE_SIZE],
       ['author_id', this.options.authorId || undefined],
-      ['channel_id', (!isDM && this.options.channelId) || undefined],
+      ['channel_id', this.options.channelId || undefined],
       ['min_id', toSnowflake(this.options.minId)],
       ['max_id', this.state.cursorId || undefined],
       ['sort_by', 'timestamp'],
@@ -562,14 +747,14 @@ class PurgecordCore {
   }
 
   filterResponse(data) {
-    // the search total will decrease as we delete stuff
-    const total = Number(data.total_results) || 0;
-    if (total > this.state.grandTotal) this.state.grandTotal = total;
+    const historyPage = data._history === true;
+    if (!historyPage) {
+      // The search total will decrease as we delete stuff.
+      const total = Number(data.total_results) || 0;
+      if (total > this.state.grandTotal) this.state.grandTotal = total;
+    }
 
-    // Each hit is wrapped in an array that used to carry the surrounding
-    // conversation; Discord no longer returns that context.
-    // Never guess which element was the hit: picking wrong here would delete a
-    // message the search did not match.
+    // Search hits may be wrapped in conversation arrays; history rows are not.
     const groups = Array.isArray(data.messages) ? data.messages : [];
     const discoveredMessages = groups
       .map(group => {
@@ -578,12 +763,20 @@ class PurgecordCore {
       })
       .filter(message => message && message.id);
 
-    // We can only delete some types of messages, system messages are not deletable.
-    let messagesToDelete = discoveredMessages;
+    this.state._pageMessages = discoveredMessages;
+
+    // Guild search applies these filters remotely. Direct DM history does not,
+    // so apply the same constraints before anything becomes deletable.
+    let candidates = discoveredMessages;
+    if (historyPage) {
+      candidates = candidates.filter(message => matchesHistoryFilters(message, this.options));
+      this.state.grandTotal += candidates.length;
+    }
+
+    let messagesToDelete = candidates;
     messagesToDelete = messagesToDelete.filter(msg => !UNDELETABLE_MESSAGE_TYPES.has(msg.type));
     messagesToDelete = messagesToDelete.filter(msg => msg.pinned ? this.options.includePinned : true);
 
-    // custom filter of messages
     if (this.options.pattern) {
       try {
         const regex = new RegExp(this.options.pattern, 'i');
@@ -593,8 +786,7 @@ class PurgecordCore {
       }
     }
 
-    // create an array containing everything we skipped (used to page past them)
-    const skippedMessages = discoveredMessages.filter(msg => !messagesToDelete.includes(msg));
+    const skippedMessages = candidates.filter(msg => !messagesToDelete.includes(msg));
 
     this.state._messagesToDelete = messagesToDelete;
     this.state._skippedMessages = skippedMessages;

@@ -41,15 +41,11 @@ const ui = {
 };
 const $ = s => ui.purgecordWindow.querySelector(s);
 
-/**
- * Find the channel header toolbar to hang the trash button off.
- * Discord's CSS-module class names are `name_hash` / `name__hash`; the old
- * `name-HASH` form is long gone, which is why the button stopped appearing.
- * `toolbar_` (with the underscore) is used so we don't also match
- * `toolbarContainer__…` in the user profile modal.
- */
+/** Find the channel-header toolbar using semantics first, then CSS-module fallbacks. */
 function findToolbar() {
-  return document.querySelector('#app-mount [class*="upperContainer_"] [class*="toolbar_"]')
+  return document.querySelector('#app-mount section[aria-label="Channel header"] [role="toolbar"]')
+    || document.querySelector('#app-mount section[aria-label="Channel header"] [class*="toolbar_"]')
+    || document.querySelector('#app-mount [class*="upperContainer_"] [class*="toolbar_"]')
     || document.querySelector('#app-mount section[class*="container_"] [class*="toolbar_"]')
     || document.querySelector('#app-mount [class*="toolbar_"]')
     || document.querySelector('#app-mount [class*="-toolbar"]'); // pre-2022 clients
@@ -89,11 +85,10 @@ function initUI() {
   ui.purgecordBtn = createElm(buttonHtml);
   ui.purgecordBtn.onclick = toggleWindow;
   mountBtn();
-  // Discord rebuilds the header bar on every channel switch, so keep checking.
-  // A plain interval is far cheaper than a subtree MutationObserver on #app-mount.
-  setInterval(() => {
-    if (!document.contains(ui.purgecordBtn)) mountBtn();
-  }, 1000);
+  // Discord rebuilds the header bar on channel switches and may leave the old
+  // toolbar mounted briefly. Re-resolve the preferred toolbar so the button is
+  // moved into the current header instead of remaining in a stale one.
+  setInterval(mountBtn, 1000);
 
   function toggleWindow() {
     if (ui.purgecordWindow.style.display !== 'none') {
@@ -277,6 +272,13 @@ function setupPurgecordCore() {
     // Show when we are pacing ourselves above the configured delay, instead of
     // rewriting the user's slider behind their back.
     const throttled = stats.deleteBackoff > 0 ? ` (throttled +${stats.deleteBackoff | 0}ms)` : '';
+
+    if (state.historyMode) {
+      ui.percent.innerHTML = `Scanning history: ${state.historyScanned} checked, ${value} processed${throttled}`;
+      ui.progressIcon.removeAttribute('value');
+      ui.progressMain.removeAttribute('value');
+      return;
+    }
     ui.percent.innerHTML = `${percent} (${value}/${max}) Elapsed: ${elapsed} Remaining: ${remaining}${throttled}`;
 
     ui.progressIcon.value = value;
@@ -339,6 +341,9 @@ async function startAction() {
   if (authorId && !isSnowflake(authorId)) return log.error('"Author ID" must be a Discord id.');
   if (guildIds.length > 1 && !authorId) {
     return log.error('"Author ID" is required when purging multiple servers. Click "me" to use your own account.');
+  }
+  if (guildId === '@me' && !authorId) {
+    return log.error('"Author ID" is required for DMs and group DMs. Click "me" to use your own account.');
   }
   for (const [label, value] of [['After a message', minId], ['Before a message', maxId]]) {
     if (value && !isSnowflake(value)) return log.error(`"${label}" must be a message id.`, escapeHTML(value));

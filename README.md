@@ -87,9 +87,9 @@ app. `discord.com`, `ptb.discord.com` and `canary.discord.com` all work.
 
 ## Quick start
 
-**Delete everything you ever said in one channel:**
+**Delete everything you ever said in one channel, DM, or group DM:**
 
-1. Open the channel or DM in Discord.
+1. Open the channel or conversation in Discord.
 2. Click the 🗑️ button in the top-right toolbar.
 3. Click **me** next to *Author ID*, then **current** next to *Channel ID*. Both fields fill themselves in.
 4. Click **▶︎ Delete**.
@@ -119,8 +119,9 @@ operation to other people's messages.
 
 Whose messages to delete. Click **me** to fill in your own user ID.
 
-Leave it empty only if you have *Manage Messages* in the target channel and genuinely want to delete other people's
-messages too. Anything you lack permission for is skipped automatically.
+Author ID is required for DMs, group DMs, and multi-server batches. In a single server target, you may leave it empty
+only if you have *Manage Messages* and genuinely want to delete other people's matching messages too. Anything you
+lack permission to delete is skipped automatically.
 
 ### Server ID
 
@@ -130,7 +131,8 @@ Which server or servers to search.
 - **Several servers** — paste a comma- or space-separated list. Each server is purged in full, one after another.
 - **Every server** — click **all**. Purgecord reads Discord's already-loaded server list when available, otherwise it
   makes one authenticated request to Discord's own API. This only fills the field; review it before pressing Delete.
-- **Direct messages** — use the literal string `@me`. It cannot be mixed with server IDs and requires Channel ID.
+- **Direct and group messages** — use the literal string `@me`. It cannot be mixed with server IDs, and both Author
+  ID and Channel ID are required.
 
 Leave *Channel ID* empty when selecting more than one server. Purgecord cannot safely infer which manually entered
 channels belong to which servers, so it rejects that ambiguous combination instead of guessing.
@@ -160,14 +162,16 @@ the archive's channel index straight in:
    archive.
 4. Press **▶︎ Delete** and leave it running.
 
-This is the practical way to clear years of DMs across dozens of conversations. Channels you have since lost access
-to are skipped with a warning and the queue continues.
+Purgecord checks each archive entry and scans live DMs and group DMs. Server channels, deleted conversations, and
+channels you can no longer access are skipped with a warning while the queue continues. Old private messages are
+still eligible for individual deletion; walking years of history can simply take a long time.
 
 ### Filter
 
-Narrows what counts as a match. These are applied by Discord's search, so they cost nothing:
+Narrows what counts as a match. Server targets use Discord's search filters. DMs and group DMs are read in
+100-message history pages and checked locally before anything is deleted:
 
-- **Containing text** — only messages containing this text.
+- **Containing text** — only messages containing this text (case-insensitive).
 - **has: link** / **has: file** — only messages with a link or an attachment.
 - **Include pinned** — off by default, so pinned messages are left alone. Tick it to delete them too.
 
@@ -237,16 +241,18 @@ click **fill** again.
 
 ## How it works
 
-1. **Search.** Purgecord calls the same `/messages/search` endpoint the Discord client uses, with your filters
-   applied, sorted newest-first, 25 results per page.
-2. **Filter.** System messages Discord refuses to delete (call notices, channel renames, thread starters, …) are
-   dropped, along with pinned messages and anything your pattern excludes.
-3. **Delete.** Each remaining message is deleted individually, pacing itself against the rate limits.
-4. **Page.** The cursor moves to just before the oldest message of the page and searches again. Paging by message ID
-   rather than by an offset means deleting messages can't shift the window mid-walk, and there's no ceiling on how
-   far back it can go.
-5. **Sweep.** When the walk reaches the end having deleted anything, it runs once more — Discord's search index lags
-   behind deletions and can hide messages that were there the whole time.
+1. **Retrieve.** Server targets use Discord's guild search endpoint, sorted newest-first in 25-result pages. DMs and
+   group DMs use the documented channel-history endpoint in 100-message pages because Discord no longer documents a
+   channel search endpoint.
+2. **Filter.** For private chats, Purgecord locally checks the exact author, message/date interval, text, link, file,
+   pinned, type, and pattern constraints. Server search applies most of those remotely. System messages Discord
+   refuses to delete are always dropped.
+3. **Delete.** Each remaining message is deleted individually, pacing itself against Discord's rate limits. Unlike
+   bulk deletion, individual deletion has no two-week age cutoff.
+4. **Page.** The cursor moves to just before the oldest raw message in the page. A private-history page with no
+   matches still advances, so old messages are not hidden behind newer messages from other participants.
+5. **Sweep servers.** When an indexed server search reaches the end after deleting something, Purgecord searches it
+   again to catch results the index was hiding. Direct history walks do not need this sweep.
 
 Errors are classified rather than blindly retried. A message that can never be deleted (system message, locked
 thread, missing permission) is skipped once with an explanation instead of being retried forever. An expired token
@@ -294,15 +300,16 @@ read — use the web app instead.
 <summary><b>It says "Being rate limited" over and over</b></summary>
 
 That is the script doing its job — it backs off and keeps going. If it happens constantly, raise both delays. Very
-large or very old channels are slow by nature; a channel with tens of thousands of messages takes hours.
+large or old histories are slow by nature; scanning years of a busy group DM can take hours.
 
 </details>
 
 <details>
 <summary><b>It stopped and messages are still there</b></summary>
 
-Run it again. Discord's search index can lag well behind reality, and a message it doesn't return can't be deleted.
-Purgecord already re-sweeps once at the end, but a second manual run costs nothing.
+For server targets, run it again: Discord's search index can lag behind reality, and a message it doesn't return
+cannot be deleted. Purgecord already re-sweeps server searches once at the end. DMs and group DMs bypass that index
+and walk the channel history directly, so check the log for an inaccessible conversation or an active filter.
 
 Check the log for skipped messages too — locked threads, channels you have left, messages posted by someone else, or
 threads you lack permission to reopen are reported individually with the reason.

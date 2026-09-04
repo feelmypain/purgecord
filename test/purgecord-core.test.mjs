@@ -28,6 +28,22 @@ function jsonResponse(status, body = {}) {
   });
 }
 
+function historyMessage(id, authorId, content, overrides = {}) {
+  return {
+    id,
+    channel_id: '44444444444444444',
+    timestamp: '2019-01-01T00:00:00.000Z',
+    content,
+    type: 0,
+    pinned: false,
+    author: { id: authorId, username: 'tester' },
+    attachments: [],
+    embeds: [],
+    flags: 0,
+    ...overrides,
+  };
+}
+
 function muteConsole() {
   const original = {
     debug: console.debug,
@@ -321,4 +337,196 @@ test('warns that one confirmation covers the remaining batch jobs', async () => 
 
   assert.match(prompt, /job 1 of 2/);
   assert.match(prompt, /remaining jobs will continue without another confirmation/);
+});
+
+test('walks group DM history past non-matching pages and deletes only exact matches', async () => {
+  const channelId = '44444444444444444';
+  const authorId = '33333333333333333';
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  const originalConfirm = window.confirm;
+  const restoreConsole = muteConsole();
+  let prompt = '';
+
+  globalThis.fetch = async (url, init = {}) => {
+    const parsed = new URL(url);
+    const method = init.method || 'GET';
+    requests.push({ method, pathname: parsed.pathname, before: parsed.searchParams.get('before') });
+
+    if (method === 'DELETE') return new Response(null, { status: 204 });
+    if (parsed.pathname === `/api/v9/channels/${channelId}`) return jsonResponse(200, { id: channelId, type: 3 });
+    if (parsed.pathname !== `/api/v9/channels/${channelId}/messages`) throw new Error(`Unexpected request: ${url}`);
+
+    const before = parsed.searchParams.get('before');
+    if (!before) {
+      return jsonResponse(200, [
+        historyMessage('90000000000000000', '22222222222222222', 'needle https://example.com', { attachments: [{ id: '1' }] }),
+        historyMessage('80000000000000000', authorId, 'does not match'),
+      ]);
+    }
+    if (before === '80000000000000000') {
+      return jsonResponse(200, [
+        historyMessage('70000000000000000', authorId, 'needle https://example.com', { attachments: [{ id: '2' }] }),
+      ]);
+    }
+    if (before === '70000000000000000') return jsonResponse(200, []);
+    throw new Error(`Unexpected cursor: ${before}`);
+  };
+  window.confirm = message => {
+    prompt = message;
+    return true;
+  };
+
+  let core;
+  try {
+    core = new PurgecordCore();
+    core.options = {
+      ...core.options,
+      authToken: 'test-token',
+      authorId,
+      guildId: '@me',
+      channelId,
+      content: 'needle',
+      hasLink: true,
+      hasFile: true,
+      pattern: '^needle',
+      searchDelay: 0,
+      deleteDelay: 0,
+    };
+    await core.run();
+  } finally {
+    globalThis.fetch = originalFetch;
+    window.confirm = originalConfirm;
+    restoreConsole();
+  }
+
+  assert.deepEqual(requests, [
+    { method: 'GET', pathname: `/api/v9/channels/${channelId}`, before: null },
+    { method: 'GET', pathname: `/api/v9/channels/${channelId}/messages`, before: null },
+    { method: 'GET', pathname: `/api/v9/channels/${channelId}/messages`, before: '80000000000000000' },
+    { method: 'DELETE', pathname: `/api/v9/channels/${channelId}/messages/70000000000000000`, before: null },
+    { method: 'GET', pathname: `/api/v9/channels/${channelId}/messages`, before: '70000000000000000' },
+  ]);
+  assert.equal(core.state.delCount, 1);
+  assert.equal(core.state.failCount, 0);
+  assert.equal(core.state.historyScanned, 3);
+  assert.match(prompt, /scan this entire chat history/);
+  assert.match(prompt, /final total is unknown/);
+  assert.equal(requests.some(request => request.pathname.endsWith('/search')), false);
+});
+
+test('applies DM message bounds and stops once the lower bound is crossed', async () => {
+  const channelId = '44444444444444444';
+  const authorId = '33333333333333333';
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  const originalConfirm = window.confirm;
+  const restoreConsole = muteConsole();
+
+  globalThis.fetch = async (url, init = {}) => {
+    const parsed = new URL(url);
+    const method = init.method || 'GET';
+    requests.push({ method, pathname: parsed.pathname, before: parsed.searchParams.get('before') });
+    if (method === 'DELETE') return new Response(null, { status: 204 });
+    if (parsed.pathname === `/api/v9/channels/${channelId}`) return jsonResponse(200, { id: channelId, type: 1 });
+    return jsonResponse(200, [
+      historyMessage('90000000000000000', authorId, 'inside range'),
+      historyMessage('70000000000000000', authorId, 'below range'),
+    ]);
+  };
+  window.confirm = () => true;
+
+  try {
+    const core = new PurgecordCore();
+    core.options = {
+      ...core.options,
+      authToken: 'test-token',
+      authorId,
+      guildId: '@me',
+      channelId,
+      minId: '75000000000000000',
+      maxId: '95000000000000000',
+      searchDelay: 0,
+      deleteDelay: 0,
+    };
+    await core.run();
+  } finally {
+    globalThis.fetch = originalFetch;
+    window.confirm = originalConfirm;
+    restoreConsole();
+  }
+
+  assert.deepEqual(requests, [
+    { method: 'GET', pathname: `/api/v9/channels/${channelId}`, before: null },
+    { method: 'GET', pathname: `/api/v9/channels/${channelId}/messages`, before: '95000000000000000' },
+    { method: 'DELETE', pathname: `/api/v9/channels/${channelId}/messages/90000000000000000`, before: null },
+  ]);
+});
+
+test('refuses to reinterpret a guild archive entry as a private chat', async () => {
+  const channelId = '44444444444444444';
+  const originalFetch = globalThis.fetch;
+  const restoreConsole = muteConsole();
+  const requests = [];
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), method: init.method || 'GET' });
+    return jsonResponse(200, { id: channelId, type: 0 });
+  };
+
+  try {
+    const core = new PurgecordCore();
+    core.options = {
+      ...core.options,
+      authToken: 'test-token',
+      authorId: '33333333333333333',
+      guildId: '@me',
+      channelId,
+      searchDelay: 0,
+    };
+    await core.run();
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreConsole();
+  }
+
+  assert.deepEqual(requests, [{
+    url: `https://discord.com/api/v9/channels/${channelId}`,
+    method: 'GET',
+  }]);
+});
+
+test('plans imported DMs and group DMs as separate private-channel jobs', () => {
+  const firstChannel = '44444444444444444';
+  const secondChannel = '55555555555555555';
+  assert.deepEqual(buildPurgePlan('@me', `${firstChannel},${secondChannel}`).jobs, [
+    { guildId: '@me', channelId: firstChannel },
+    { guildId: '@me', channelId: secondChannel },
+  ]);
+});
+
+test('requires an author before reading any private-channel history', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreConsole = muteConsole();
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests++;
+    throw new Error('Private history must not be requested without an author');
+  };
+
+  try {
+    const core = new PurgecordCore();
+    core.options = {
+      ...core.options,
+      authToken: 'test-token',
+      authorId: '',
+      guildId: '@me',
+      channelId: '44444444444444444',
+    };
+    await core.run();
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreConsole();
+  }
+
+  assert.equal(requests, 0);
 });

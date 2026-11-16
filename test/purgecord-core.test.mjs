@@ -200,6 +200,48 @@ test('loads all server IDs from Discord\'s in-memory guild store', () => {
   }
 });
 
+test('reads Discord\'s module cache from inside a Firefox userscript sandbox', () => {
+  // The rules of Firefox's Xray vision that the lookup has to survive: globals
+  // the page defined are missing from the sandbox's window, the page cannot
+  // read objects the sandbox made, and page objects handed to the sandbox hide
+  // the properties the page put on them.
+  const guildStore = {
+    exports: {
+      default: {
+        getGuild() {},
+        getGuilds: () => ({ '11111111111111111': { id: '11111111111111111', name: 'One' } }),
+      },
+    },
+  };
+  const xrayedRequire = () => {};
+  xrayedRequire.wrappedJSObject = { c: { guildStore } };
+
+  const pageOwned = new WeakSet();
+  const discordChunk = [[1], {}];
+  const chunks = [discordChunk];
+  chunks.push = (chunk) => {
+    if (!pageOwned.has(chunk)) throw new Error('Permission denied to access property "0"');
+    chunk[2](xrayedRequire);
+    Array.prototype.push.call(chunks, chunk);
+  };
+  window.wrappedJSObject = { webpackChunkdiscord_app: chunks };
+  globalThis.cloneInto = ([chunkIds, modules, runtime], target, options) => {
+    assert.equal(target, window.wrappedJSObject);
+    // structuredClone() rejects what the real cloneInto() rejects, e.g. symbols.
+    const clone = [structuredClone(chunkIds), structuredClone(modules), options.cloneFunctions ? runtime : undefined];
+    pageOwned.add(clone);
+    return clone;
+  };
+
+  try {
+    assert.deepEqual(getGuildIds(), ['11111111111111111']);
+    assert.deepEqual([...chunks], [discordChunk]);
+  } finally {
+    delete window.wrappedJSObject;
+    delete globalThis.cloneInto;
+  }
+});
+
 test('loads all server IDs from Discord when the client store is unavailable', async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];

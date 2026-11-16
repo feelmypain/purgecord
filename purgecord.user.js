@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Purgecord
 // @description Bulk-delete your own messages in a Discord channel, DM or server
-// @version     1.1.1
+// @version     1.1.2
 // @author      feelmypain
 // @homepageURL https://github.com/feelmypain/purgecord
 // @supportURL  https://github.com/feelmypain/purgecord/issues
@@ -20,7 +20,7 @@
 	'use strict';
 
 	/* rollup-plugin-baked-env */
-	const VERSION = "1.1.1";
+	const VERSION = "1.1.2";
 
 	var themeCss = (`
 /* purgecord window */
@@ -1901,6 +1901,8 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 	};
 	window.messagePicker = messagePicker;
 
+	/* global cloneInto -- only defined inside a Firefox content-script sandbox */
+
 	/** Discord encrypts the stored token in the desktop app; that value is unusable here. */
 	const ENCRYPTED_TOKEN_PREFIX = 'dQw4w9WgXcQ:';
 	const API = new URL('/api/v9', window.location.href).href;
@@ -1940,30 +1942,48 @@ body.purgecord-pick-message.after [id^="message-content-"]:hover::after {
 	/**
 	 * Walk Discord's webpack module cache looking for a module that can hand us
 	 * something. Used as a fallback because Discord removes the token from local
-	 * storage whenever DevTools is open.
+	 * storage whenever it thinks DevTools is open.
+	 *
+	 * Greasemonkey, and any other manager that runs the script as a Firefox
+	 * content script, only sees the page through Xray wrappers. Those hide every
+	 * property the page defined itself, so Discord's globals are reachable only
+	 * through wrappedJSObject, and the page in turn cannot read objects that
+	 * belong to the sandbox.
 	 */
 	function fromWebpack(pick) {
-	  const chunks = window.webpackChunkdiscord_app;
+	  const page = window.wrappedJSObject || window;
+	  const chunks = page.webpackChunkdiscord_app;
 	  if (!chunks || typeof chunks.push !== 'function') return null;
 
 	  let found = null;
+	  const visit = (require) => {
+	    let modules;
+	    // The page calls this with its own require, which arrives wrapped again.
+	    try { modules = Object.values((require.wrappedJSObject || require).c || {}); } catch { return; }
+	    for (const module of modules) {
+	      try {
+	        const value = pick(module && module.exports);
+	        if (value) { found = value; return; }
+	      } catch { /* individual module getters can throw */ }
+	    }
+	  };
+
+	  // A unique chunk id, so we can never collide with a real one and mark it
+	  // as already installed (which breaks the client). It has to be a string:
+	  // cloneInto() is a structured clone and refuses symbols.
+	  const id = `purgecord:${Math.random()}`;
+	  let chunk = [[id], {}, visit];
+	  if (page !== window && typeof cloneInto === 'function') chunk = cloneInto(chunk, page, { cloneFunctions: true });
+
 	  try {
-	    // A unique chunk id, so we can never collide with a real one and mark it
-	    // as already installed (which breaks the client).
-	    chunks.push([[Symbol('purgecord')], {}, (require) => {
-	      let modules;
-	      try { modules = Object.values(require.c || {}); } catch { return; }
-	      for (const module of modules) {
-	        try {
-	          const value = pick(module && module.exports);
-	          if (value) { found = value; return; }
-	        } catch { /* individual module getters can throw */ }
-	      }
-	    }]);
+	    chunks.push(chunk);
 	  } catch (err) {
 	    log.verb('Webpack lookup failed:', err);
 	  } finally {
-	    chunks.pop(); // don't leave our fake chunk behind
+	    // Don't leave our fake chunk behind, but a push that failed never stored
+	    // it, and popping then would throw away one of Discord's own chunks.
+	    const last = chunks[chunks.length - 1];
+	    if (last && last[0] && last[0][0] === id) chunks.pop();
 	  }
 	  return found;
 	}

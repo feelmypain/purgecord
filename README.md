@@ -288,8 +288,12 @@ Then please [open an issue](https://github.com/feelmypain/purgecord/issues) so t
 <details>
 <summary><b>"Could not automatically detect Authorization Token"</b></summary>
 
-Close DevTools and click **fill** again. Discord deletes the stored token from local storage while DevTools is open,
-as an anti-scam measure.
+Discord takes the token out of local storage whenever it thinks DevTools is open, as an anti-scam measure. It
+guesses from the window size, so a docked DevTools panel and a wide browser sidebar both count. Purgecord then reads
+the token from Discord's running code instead. On Greasemonkey, which runs scripts in a Firefox sandbox, that
+fallback needs Purgecord 1.1.2 or newer.
+
+If it still fails, close DevTools and any sidebar, then click **fill** again.
 
 If you are running Purgecord inside the *desktop* app via a client mod, the stored token is encrypted and cannot be
 read — use the web app instead.
